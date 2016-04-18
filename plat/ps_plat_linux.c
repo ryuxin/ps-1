@@ -74,7 +74,6 @@ set_prio(void)
 	}
 	assert(sp.sched_priority == sched_get_priority_max(SCHED_RR));
 
-	printf("set proi\n");
 	return;
 }
 

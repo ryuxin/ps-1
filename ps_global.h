@@ -108,11 +108,28 @@ __ps_qsc_clear(struct ps_qsc_list *l)
 	return m;
 }
 
-struct ps_slab_remote_list {
-	struct ps_lock     lock;
-	struct ps_qsc_list remote_frees;
-	size_t             nfree;
-} PS_ALIGNED;
+static inline void
+__ps_stack_push(struct ps_mheader **h, struct ps_mheader *n)
+{
+	struct ps_mheader *t;
+
+	do {
+		t = *h;
+		n->next = t;
+	} while(!ps_cas((unsigned long *)h, (unsigned long)t, (unsigned long)n));
+}
+
+static inline struct ps_mheader *
+__ps_stack_clear(struct ps_mheader **head)
+{
+	struct ps_mheader *h;
+
+	do {
+		h = *head;
+	} while(!ps_cas((unsigned long *)head, (unsigned long)h, (unsigned long)NULL));
+
+	return h;
+}
 
 struct ps_slab_info {
 	struct ps_slab_freelist fl;	      /* freelist of slabs with available objects */
@@ -176,7 +193,7 @@ struct ps_mem_percore {
 	 * performing remote frees does not contend across more than 2
 	 * numa nodes (this node, and the destination node).
 	 */
-	struct ps_slab_remote_list slab_remote[PS_NUMLOCALITIES] PS_ALIGNED;
+	struct ps_mheader *slab_remote[PS_NUMLOCALITIES] PS_ALIGNED;
 } PS_ALIGNED;
 
 struct ps_locality_info {
