@@ -16,6 +16,7 @@ static inline int
 __ps_in_lib(struct ps_quiescence_timing *timing)
 { return timing->time_out <= timing->time_in; }
 
+#ifdef OPTIMAL
 static inline void
 __ps_timing_update_remote(struct parsec *parsec, struct ps_smr_percore *curr, int remote_cpu)
 {
@@ -165,6 +166,53 @@ ps_quiesce_wait(struct parsec *p, ps_tsc_t tsc, ps_tsc_t *qsc_tsc)
 int
 ps_try_quiesce(struct parsec *p, ps_tsc_t tsc, ps_tsc_t *qsc_tsc)
 { return ps_quiesce(p, tsc, 0, qsc_tsc); }
+#endif
+
+#ifdef GENERAL
+static inline void
+__ps_timing_update_remote(struct parsec *parsec, struct ps_quiescence_timing *curr, int remote_cpu)
+{
+	struct ps_quiescence_timing *cpu_i;
+
+	cpu_i = &(parsec->timing_info[remote_cpu].timing);
+	*curr = *cpu_i;
+
+	ps_mem_fence();
+
+	return;
+}
+
+static void
+ps_quiesce(struct parsec *parsec, coreid_t curr, ps_tsc_t *qsc)
+{
+	int i, qsc_cpu;
+	ps_tsc_t min_known_qsc;
+	struct ps_quiescence_timing t;
+
+	min_known_qsc = ps_tsc();
+	for (i = 1 ; i < PS_NUMCORES ; i++) {
+		/* Make sure we don't all hammer core 0... */
+		qsc_cpu = (curr + i) % PS_NUMCORES;
+		assert(qsc_cpu != curr);
+
+		__ps_timing_update_remote(parsec, &t, qsc_cpu);
+		if (__ps_in_lib(&t)) {
+			if (min_known_qsc > t.time_in) min_known_qsc = t.time_in;
+		}
+	}
+	*qsc = min_known_qsc;
+
+	ps_mem_fence();
+}
+#endif
+
+#ifdef REAL_TIME
+static inline void
+ps_quiesce(struct parsec *parsec, coreid_t curr, ps_tsc_t *qsc)
+{
+	*qsc = ps_tsc() - (ps_tsc_t)MAX_REPONSE;
+}
+#endif
 
 /* 
  * We assume that the quiescence queue has at least PS_QLIST_BATCH items
@@ -181,8 +229,12 @@ __ps_smr_reclaim(coreid_t curr, struct ps_qsc_list *ql, struct ps_smr_info *si,
 	assert(ps && ql && si);
 	assert(a);
 
+#ifdef OPTIMAL
 	tsc = a->tsc_free;
 	if (ps_try_quiesce(ps, tsc, &qsc)) increase_backlog = 1;
+#else
+	ps_quiesce(ps, curr, &qsc);
+#endif
 
 	/* Remove a batch worth of items from the qlist */
 	for (i = 0 ; i < PS_QLIST_BATCH ; i++) {
@@ -220,15 +272,27 @@ ps_init(struct parsec *ps)
 	for (i = 0 ; i < PS_NUMCORES ; i++) {
 		struct ps_quiescence_timing *t = &ps->timing_info[i].timing;
 
-		t->time_in = t->time_out = t->last_known_quiescence = now;
+		t->time_in = t->time_out = now;
 		t->time_out++;
+#ifdef OPTIMAL
+		t->last_known_quiescence = now;
 		for (j = 0 ; j < PS_NUMCORES ; j++) {
 			struct __ps_other_core *o = &ps->timing_info[i].timing_others[j];
 
 			o->time_in = o->time_out = o->time_updated = now;
 			o->time_out++;
 		}
+#endif
 	}
+}
+
+inline void
+ps_init_period(struct parsec *ps, ps_tsc_t p)
+{
+	int curr_cpu;
+
+	curr_cpu = ps_coreid();
+	ps->timing_info[curr_cpu].period = p;
 }
 
 struct parsec *

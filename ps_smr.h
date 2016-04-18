@@ -36,8 +36,12 @@
 
 struct ps_quiescence_timing {
 	volatile ps_tsc_t     time_in, time_out;
+#ifdef OPTIMAL
 	volatile ps_tsc_t     last_known_quiescence;
 	char __padding[PS_CACHE_PAD - 3*sizeof(ps_tsc_t)];
+#else
+	char __padding[PS_CACHE_PAD - 2*sizeof(ps_tsc_t)];
+#endif
 } PS_ALIGNED PS_PACKED;
 
 struct __ps_other_core {
@@ -45,12 +49,17 @@ struct __ps_other_core {
 };
 
 struct ps_smr_percore {
+	ps_tsc_t period, deadline;
 	/* ps_quiescence_timing info of this CPU */
 	struct ps_quiescence_timing timing;
+#ifdef OPTIMAL
 	/* ps_quiescence_timing info of other CPUs known by this CPU */
 	struct __ps_other_core timing_others[PS_NUMCORES];
 	/* padding an additional cacheline for prefetching */
-	char __padding[PS_CACHE_PAD - (((sizeof(struct __ps_other_core)*PS_NUMCORES)+sizeof(struct ps_quiescence_timing)) % PS_CACHE_LINE)];
+	char __padding[PS_CACHE_PAD - (((sizeof(struct __ps_other_core)*PS_NUMCORES)+sizeof(struct ps_quiescence_timing)+2*sizeof(ps_tsc_t)) % PS_CACHE_LINE)];
+#else
+	char __padding[PS_CACHE_PAD - ((sizeof(struct ps_quiescence_timing)+2*sizeof(ps_tsc_t)) % PS_CACHE_LINE)];
+#endif
 } PS_ALIGNED PS_PACKED;
 
 struct parsec {
@@ -96,6 +105,28 @@ __ps_smr_free(void *buf, struct ps_mem *mem, ps_free_fn_t ffn)
 	__ps_qsc_enqueue(ql, m);
 	si->qmemcnt++;
 	if (unlikely(si->qmemcnt >= si->qmemtarget)) __ps_smr_reclaim(curr_core, ql, si, mem, ffn);
+}
+
+static inline void
+__ps_quiesce(struct ps_mem *mem, ps_free_fn_t ffn)
+{
+	struct ps_smr_info *si;
+	struct ps_qsc_list *ql;
+	struct ps_smr_percore *ti;
+	coreid_t curr, curr_numa;
+	ps_tsc_t tsc;
+
+	tsc = ps_tsc_locality(&curr, &curr_numa);
+	si  = &mem->percore[curr].smr_info;
+	ql  = &si->qsc_list;
+	ti  = &si->ps->timing_info[curr];
+
+	if (tsc >= ti->deadline) {
+		__ps_smr_reclaim(curr, ql, si, mem, ffn);
+		ti->deadline += ti->period;
+	}
+
+	return;
 }
 
 static inline void
@@ -182,6 +213,9 @@ ps_memptr_delete_##name(struct ps_mem *m)							\
 static inline int										\
 ps_mem_delete_##name(void)									\
 { return ps_memptr_delete_##name(&__ps_mem_##name); }						\
+static inline void									        \
+ps_quiesce_##name(void)										\
+{ __ps_quiesce(&__ps_mem_##name, __ps_parslab_free_tramp_##name); }
 
 #define PS_PARSLAB_CREATE_AFNS(name, objsz, allocsz, allocfn, freefn)		\
 __PS_PARSLAB_CREATE_AFNS(name, objsz, allocsz, sizeof(struct ps_slab), allocfn, freefn)

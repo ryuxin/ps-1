@@ -10,6 +10,11 @@
 #ifndef PS_GLOBAL_H
 #define PS_GLOBAL_H
 
+/* #define OPTIMAL */
+#define GENERAL
+/* #define REAL_TIME */
+#define MAX_REPONSE 1000000
+
 #include <ps_plat.h>
 
 typedef unsigned long ps_desc_t;
