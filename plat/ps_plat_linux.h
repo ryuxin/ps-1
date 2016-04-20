@@ -112,7 +112,7 @@ ps_tsc(void)
 {
 	unsigned long a, d, c;
 
-	__asm__ __volatile__("rdtsc" : "=a" (a), "=d" (d), "=c" (c) : : );
+	__asm__ __volatile__("rdtsc" : "=a" (a), "=d" (d), "=c" (c) : );
 
 	return ((u64_t)d << 32) | (u64_t)a;
 }
@@ -122,7 +122,7 @@ ps_tsc_locality(coreid_t *coreid, localityid_t *numaid)
 {
 	unsigned long a, d, c;
 
-	__asm__ __volatile__("rdtscp" : "=a" (a), "=d" (d), "=c" (c) : : );
+	__asm__ __volatile__("rdtscp" : "=a" (a), "=d" (d), "=c" (c) : );
 	*coreid = c & 0xFFF; 	/* lower 12 bits in Linux = coreid */
 	*numaid = c >> 12; 	/* next 8 = socket/numa id */
 
