@@ -4,7 +4,7 @@ LD      = $(CC)
 LDFLAGS = -pthread -L..
 COPT    = -g
 CWARN   = -Wno-long-long
-CFLAGS  = -Wall -Wpedantic -Wextra -pthread $(CWARN) $(COPT)
+CFLAGS  = -Wall -Wextra -pthread $(CWARN) $(COPT)
 
 # library
 CFILES  = $(wildcard ../*.c)
