@@ -286,7 +286,7 @@ ps_init(struct parsec *ps)
 	}
 }
 
-inline void
+void
 ps_init_period(struct parsec *ps, ps_tsc_t p)
 {
 	int curr_cpu;

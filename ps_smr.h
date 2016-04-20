@@ -70,6 +70,7 @@ struct parsec {
 int ps_quiesce_wait(struct parsec *p, ps_tsc_t tsc, ps_tsc_t *qsc);
 int ps_try_quiesce (struct parsec *p, ps_tsc_t tsc, ps_tsc_t *qsc);
 void ps_init(struct parsec *ps);
+void ps_init_period(struct parsec *ps, ps_tsc_t p);
 struct parsec *ps_alloc(void);
 void __ps_smr_reclaim(coreid_t curr, struct ps_qsc_list *ql, struct ps_smr_info *si, struct ps_mem *mem, ps_free_fn_t ffn);
 void __ps_memptr_init(struct ps_mem *m, struct parsec *ps);

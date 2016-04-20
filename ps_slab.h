@@ -247,47 +247,47 @@ __ps_slab_mem_alloc(struct ps_mem *mem, PS_SLAB_PARAMS)
  * and deallocation in the macro due to maintenance and readability.
  */
 #define __PS_SLAB_CREATE_FNS(name, obj_sz, allocsz, headoff, afn, ffn)			\
-inline void *										\
+static inline void *										\
 ps_slabptr_alloc_##name(struct ps_mem *m)						\
 { return __ps_slab_mem_alloc(m, ps_coreid(), obj_sz, allocsz, headoff, afn, ffn); }	\
-inline void										\
+static inline void										\
 ps_slabptr_free_coreid_##name(struct ps_mem *m, void *buf, coreid_t coreid)		\
 { __ps_slab_mem_free(buf, m, coreid, obj_sz, allocsz, headoff, afn, ffn); }		\
-inline void										\
+static inline void										\
 ps_slabptr_free_##name(struct ps_mem *m, void *buf)					\
 { ps_slabptr_free_coreid_##name(m, buf, ps_coreid()); }					\
-inline void *										\
+static inline void *										\
 ps_slab_alloc_##name(void)								\
 { return ps_slabptr_alloc_##name(&__ps_mem_##name); }					\
-inline void										\
+static inline void										\
 ps_slab_free_##name(void *buf)								\
 { ps_slabptr_free_##name(&__ps_mem_##name, buf); }					\
-inline void										\
+static inline void										\
 ps_slab_free_coreid_##name(void *buf, coreid_t curr)					\
 { ps_slabptr_free_coreid_##name(&__ps_mem_##name, buf, curr); }				\
-inline void										\
+static inline void										\
 ps_slabptr_init_##name(struct ps_mem *m)						\
 { ps_slabptr_init(m); }									\
-inline void										\
+static inline void										\
 ps_slab_init_##name(void)								\
 { ps_slabptr_init_##name(&__ps_mem_##name); }						\
-inline struct ps_mem *									\
+static inline struct ps_mem *									\
 ps_slabptr_create_##name(void)								\
 {											\
 	struct ps_mem *m = ps_plat_alloc(sizeof(struct ps_mem), ps_coreid());		\
 	if (m) ps_slabptr_init_##name(m);						\
 	return m;									\
 }											\
-inline void										\
+static inline void										\
 ps_slabptr_delete_##name(struct ps_mem *m)						\
 { ps_plat_free(m, sizeof(struct ps_mem), ps_coreid()); }				\
-inline size_t										\
+static inline size_t										\
 ps_slab_objmem_##name(void)								\
 { return __ps_slab_objmemsz(obj_sz); }							\
-inline size_t										\
+static inline size_t										\
 ps_slab_nobjs_##name(void)								\
 { return __ps_slab_max_nobjs(obj_sz, allocsz, headoff); }				\
-inline unsigned int									\
+static inline unsigned int									\
 ps_slab_objoff_##name(void *obj)							\
 {											\
 	struct ps_mheader *h = __ps_mhead_get(obj);					\
