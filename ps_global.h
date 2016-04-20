@@ -10,8 +10,8 @@
 #ifndef PS_GLOBAL_H
 #define PS_GLOBAL_H
 
-/* #define OPTIMAL */
-#define GENERAL
+#define OPTIMAL
+/* #define GENERAL */
 /* #define REAL_TIME */
 #define MAX_REPONSE 1000000
 

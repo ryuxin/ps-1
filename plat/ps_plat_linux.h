@@ -140,8 +140,8 @@ ps_coreid(void)
 	return coreid;
 }
 
-#define PS_ATOMIC_POSTFIX "q" /* x86-64 */
-/* #define PS_ATOMIC_POSTFIX "l" */ /* x86-32 */
+/* #define PS_ATOMIC_POSTFIX "q" /\* x86-64 *\/ */
+#define PS_ATOMIC_POSTFIX "l" /* x86-32 */
 #define PS_CAS_INSTRUCTION "cmpxchg"
 #define PS_FAA_INSTRUCTION "xadd"
 #define PS_CAS_STR PS_CAS_INSTRUCTION PS_ATOMIC_POSTFIX " %2, %0; setz %1"
