@@ -29,11 +29,12 @@
 #include <urcu.h>
 
 // 0 -> ll, 1 -> parsec, 2-> urcu, 3->rwlock, 4->mcslock, 5->epoch, 6->brlock
-#define BENCH_OP 6
+#define BENCH_OP 1
 
 #define CACHE_LINE PS_CACHE_LINE
 #define PAGE_SIZE  PS_PAGE_SIZE
 #define NUM_CPU    PS_NUMCORES
+#define CACHE_ALIGNED __attribute__((aligned(CACHE_LINE)))
 #define TRACE_FILE "/tmp/ll_100p_key"
 #define N_OPS (10000000)
 #define N_LOG (N_OPS / NUM_CPU)
@@ -253,7 +254,7 @@ static void Init(void)
 static void Init_thd(void)
 {
 	thd_set_affinity(pthread_self(), thd_local_id);
-#elif BENCH_OP == 2
+#if BENCH_OP == 2
 	rcu_register_thread();
 	rcu_init();
 #elif BENCH_OP == 5
@@ -268,13 +269,14 @@ void bench(void) {
 	int i, id, ret = 0;
 	unsigned long n_read = 0, n_update = 0, op_jump = NUM_CPU;
 	unsigned long long s, e, s1, e1, tot_cost_r = 0, tot_cost_w = 0, max = 0, cost;
-	void *last_alloc;
 	
 	(void)ret;
 	id = thd_local_id;
+#if BENCH_OP == 1
+	void *last_alloc;
 	last_alloc = ps_mem_alloc_bench();
 	assert(last_alloc);
-		
+#endif		
 	s = ps_tsc();
 	for (i = 0 ; i < N_OPS/NUM_CPU; i++) {
 		s1 = ps_tsc();
@@ -317,7 +319,7 @@ void bench(void) {
 			assert(ret == LL_LENGTH);
 #elif BENCH_OP == 1
 			ps_enter(&ps);
-			ret = nil_call();
+			ret = nil_call(NULL);
 			ps_exit(&ps);
 #elif BENCH_OP == 2
 			rcu_read_lock();
@@ -378,7 +380,7 @@ void bench(void) {
 void * 
 worker(void *arg)
 {
-	quie_time_t s,e;
+        ps_tsc_t s, e;
 	
 	thd_local_id = (int)arg;
 	Init_thd();	
@@ -386,11 +388,11 @@ worker(void *arg)
 	s = ps_tsc();
 	/* printf("cpu %d (tid %d) starting @ %llu\n", thd_local_id, get_cpu(), s); */
 
-	meas_sync_start();
+	meas_barrier(PS_NUMCORES);
 	bench();
-	meas_sync_end();
+	meas_barrier(PS_NUMCORES);
 
-	if (cpuid == 0) {
+	if (thd_local_id == 0) {
 		int i;
 		unsigned long long tot_r = 0, tot_w = 0;
 		for (i = 0; i < NUM_CPU; i++) {
@@ -447,8 +449,9 @@ void load_trace()
 	/* read the entire trace into memory. */
 	fd = open(TRACE_FILE, O_RDONLY);
 	if (fd < 0) {
-		printf("cannot open file %s. Exit.\n", TRACE_FILE);
-		exit(-1);
+		fd = open(TRACE_FILE, O_CREAT | O_RDWR, S_IRWXU);
+		assert(fd >= 0);
+		trace_gen(fd, N_OPS, 90);
 	}
     
 	for (i = 0; i < (N_OPS / PAGE_SIZE); i++) {
@@ -490,7 +493,7 @@ int main()
 	thd_set_affinity(pthread_self(), 0);
 	load_trace();
 
-	for (i = 1; i < use_ncores; i++) {
+	for (i = 1; i < NUM_CPU; i++) {
 		ret = pthread_create(&thds[i], 0, worker, (void *)i);
 		if (ret) exit(-1);
 	}
@@ -499,7 +502,7 @@ int main()
 
 	worker((void *)0);
 
-	for (i = 1; i < use_ncores; i++) {
+	for (i = 1; i < NUM_CPU; i++) {
 		pthread_join(thds[i], (void *)&ret);
 	}
 

@@ -1,10 +1,10 @@
 CINC    = -I../ -I. -I../plat/
 CC      = gcc
 LD      = $(CC)
-LDFLAGS = -pthread -L..
-COPT    = -g
+LDFLAGS = -pthread -lck -lurcu-mb -L..
+COPT    = -O2
 CWARN   = -Wno-long-long
-CFLAGS  = -Wall -Wextra -pthread $(CWARN) $(COPT)
+CFLAGS  = -DRCU_MB -D__x86__ -Wall -Wextra -pthread $(CWARN) $(COPT)
 
 # library
 CFILES  = $(wildcard ../*.c)
