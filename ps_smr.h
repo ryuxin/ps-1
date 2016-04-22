@@ -124,7 +124,7 @@ __ps_quiesce(struct ps_mem *mem, ps_free_fn_t ffn)
 
 	if (tsc >= ti->deadline) {
 		__ps_smr_reclaim(curr, ql, si, mem, ffn);
-		ti->deadline += ti->period;
+		ti->deadline = tsc + ti->period;
 	}
 
 	return;

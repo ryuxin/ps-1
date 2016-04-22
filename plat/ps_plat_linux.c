@@ -14,12 +14,18 @@ struct thd_active {
 struct thd_active thd_active[PS_NUMCORES] PS_ALIGNED;
 
 /* Only used in Linux tests. */
-const int identity_mapping[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
-const int *cpu_assign        = identity_mapping;
+//const int identity_mapping[] = {0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12};
+const int identity_mapping[] = {0, 4, 8, 12, 16, 20, 24, 28, 32, 36,
+		      1, 5, 9, 13, 17, 21, 25, 29, 33, 37,
+		      2, 6, 10, 14, 18, 22, 26, 30, 34, 38,
+		      3, 7, 11, 15, 19, 23, 27, 31, 35, 39, -1};
+const int *cpu_assign 	     = identity_mapping;
 /* int cpu_assign[41] = {0, 4, 8, 12, 16, 20, 24, 28, 32, 36, */
 /* 		      1, 5, 9, 13, 17, 21, 25, 29, 33, 37, */
 /* 		      2, 6, 10, 14, 18, 22, 26, 30, 34, 38, */
 /* 		      3, 7, 11, 15, 19, 23, 27, 31, 35, 39, -1}; */
+__thread int core_local_id;
+int malloc_cnt = 0;
 
 static void
 call_getrlimit(int id, char *name)
@@ -95,9 +101,10 @@ thd_set_affinity(pthread_t tid, int id)
 	}
 
 	set_prio();
+	core_local_id = id;
 	/* confirm that the library's version of coreid == benchmark's */
 	ps_tsc_locality(&cid, &n);
-	assert(cpuid == cid);
+	/* assert(cpuid == cid); */
 }
 
 /*

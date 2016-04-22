@@ -27,13 +27,16 @@ typedef u16_t localityid_t;
 #define PS_ALIGNED     __attribute__((aligned(PS_CACHE_LINE)))
 #define PS_WORDALIGNED __attribute__((aligned(PS_WORD)))
 #ifndef PS_NUMCORES
-#define PS_NUMCORES      (10)
+#define PS_NUMCORES      (20)
 #endif
 #ifndef PS_NUMLOCALITIES
-#define PS_NUMLOCALITIES 2
+#define PS_NUMLOCALITIES 4
 #endif
 #define PS_PAGE_SIZE   4096
 #define PS_RNDUP(v, a) (-(-(v) & -(a))) /* from blogs.oracle.com/jwadams/entry/macros_and_powers_of_two */
+extern __thread int core_local_id;
+extern const int *cpu_assign;
+extern int malloc_cnt;
 
 /* 
  * How frequently do we check remote free lists when we make an
@@ -62,6 +65,7 @@ ps_plat_alloc(size_t sz, coreid_t coreid)
 	ret = posix_memalign(&m, PS_PAGE_SIZE, sz);
 	assert(!ret);
 	memset(m, 0, sz);
+	malloc_cnt++;
 
 	return m;
 	/* mmap(0, sz, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, (size_t)0); */
@@ -72,6 +76,7 @@ ps_plat_free(void *s, size_t sz, coreid_t coreid)
 { 
 	(void)coreid; (void)sz;
 	free(s);
+	malloc_cnt--;
 	/* munmap(s, sz); */
 }
 
@@ -125,6 +130,8 @@ ps_tsc_locality(coreid_t *coreid, localityid_t *numaid)
 	__asm__ __volatile__("rdtscp" : "=a" (a), "=d" (d), "=c" (c) : );
 	*coreid = c & 0xFFF; 	/* lower 12 bits in Linux = coreid */
 	*numaid = c >> 12; 	/* next 8 = socket/numa id */
+	*coreid = core_local_id;
+	*numaid = cpu_assign[core_local_id] % 4;
 
 	return ((u64_t)d << 32) | (u64_t)a;
 }
@@ -132,12 +139,13 @@ ps_tsc_locality(coreid_t *coreid, localityid_t *numaid)
 static inline unsigned int
 ps_coreid(void)
 {
-	coreid_t coreid, numaid;
+	/* coreid_t coreid, numaid; */
 
-	if (PS_NUMCORES == 1) return 0;
-	ps_tsc_locality(&coreid, &numaid);
+	/* if (PS_NUMCORES == 1) return 0; */
+	/* ps_tsc_locality(&coreid, &numaid); */
 
-	return coreid;
+	/* return coreid; */
+	return core_local_id;
 }
 
 /* #define PS_ATOMIC_POSTFIX "q" /\* x86-64 *\/ */
