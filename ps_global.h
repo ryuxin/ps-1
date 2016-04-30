@@ -10,10 +10,10 @@
 #ifndef PS_GLOBAL_H
 #define PS_GLOBAL_H
 
-#define OPTIMAL
+/* #define OPTIMAL */
 /* #define GENERAL */
-/* #define REAL_TIME */
-#define MAX_REPONSE 1000000
+#define REAL_TIME
+#define MAX_REPONSE 100000
 
 #include <ps_plat.h>
 
@@ -113,11 +113,18 @@ __ps_qsc_clear(struct ps_qsc_list *l)
 	return m;
 }
 
+struct ps_slab_remote_list {
+	struct ps_mheader *remote_frees;
+	char  padding[PS_CACHE_PAD-sizeof(struct ps_mheader *)%PS_CACHE_PAD];
+} PS_PACKED PS_ALIGNED;
+
 static inline void
-__ps_stack_push(struct ps_mheader **h, struct ps_mheader *n)
+__ps_stack_push(struct ps_slab_remote_list *head, struct ps_mheader *n)
 {
 	struct ps_mheader *t;
+	struct ps_mheader **h;
 
+	h = &head->remote_frees;
 	do {
 		t = *h;
 		n->next = t;
@@ -125,10 +132,12 @@ __ps_stack_push(struct ps_mheader **h, struct ps_mheader *n)
 }
 
 static inline struct ps_mheader *
-__ps_stack_clear(struct ps_mheader **head)
+__ps_stack_clear(struct ps_slab_remote_list *l)
 {
 	struct ps_mheader *h;
+	struct ps_mheader **head;
 
+	head = &l->remote_frees;
 	do {
 		h = *head;
 	} while(!ps_cas((unsigned long *)head, (unsigned long)h, (unsigned long)NULL));
@@ -149,6 +158,7 @@ struct ps_smr_info {
 	struct ps_qsc_list qsc_list;   /* queue of freed, but not quiesced memory */
 	size_t             qmemcnt;    /* # of items in the qsc_list */
 	size_t             qmemtarget; /* # of items in qsc_list before we attempt to quiesce */
+	size_t             qmemmax;    /* # of items in the qsc_list */
 };
 
 typedef void *(*ps_lkupan_fn_t)(void *v, unsigned long id, u32_t dlimit, void *accum);
@@ -198,7 +208,7 @@ struct ps_mem_percore {
 	 * performing remote frees does not contend across more than 2
 	 * numa nodes (this node, and the destination node).
 	 */
-	struct ps_mheader *slab_remote[PS_NUMLOCALITIES] PS_ALIGNED;
+	struct ps_slab_remote_list slab_remote[PS_NUMLOCALITIES] PS_ALIGNED;
 } PS_ALIGNED;
 
 struct ps_locality_info {

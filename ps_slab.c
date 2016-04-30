@@ -100,7 +100,7 @@ ps_slabptr_stats(struct ps_mem *m, struct ps_slab_stats *stats)
 		} while (s != pc->slab_info.fl.list);
 
 		for (j = 0 ; j < PS_NUMLOCALITIES ; j++) {
-			stats->percore[i].nremote += !!pc->slab_remote[j];
+			stats->percore[i].nremote += !!pc->slab_remote[j].remote_frees;
 		}
 	}
 }
@@ -113,7 +113,7 @@ ps_slabptr_isempty(struct ps_mem *m)
 	for (i = 0 ; i < PS_NUMCORES ; i++) {
 		if (m->percore[i].slab_info.nslabs) return 0;
 		for (j = 0 ; j < PS_NUMLOCALITIES ; j++) {
-			if (m->percore[i].slab_remote[j]) return 0;
+			if (m->percore[i].slab_remote[j].remote_frees) return 0;
 		}
 	}
 	return 1;
@@ -123,7 +123,7 @@ ps_slabptr_isempty(struct ps_mem *m)
 void
 __ps_slab_mem_remote_free(struct ps_mem *mem, struct ps_mheader *h, coreid_t core_target)
 {
-	struct ps_mheader **r;
+	struct ps_slab_remote_list *r;
 	coreid_t     tmpcoreid;
 	localityid_t numaid;
 	
@@ -149,7 +149,7 @@ __ps_slab_mem_remote_process(struct ps_mem *mem, struct ps_slab_info *si, PS_SLA
 	PS_SLAB_DEWARN;
 
 	do {
-		struct ps_mheader **r = &mem->percore[coreid].slab_remote[locality];
+		struct ps_slab_remote_list *r = &mem->percore[coreid].slab_remote[locality];
 
 		h = __ps_stack_clear(r);
 		locality = (locality + 1) % PS_NUMLOCALITIES;

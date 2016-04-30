@@ -175,7 +175,8 @@ __ps_timing_update_remote(struct parsec *parsec, struct ps_quiescence_timing *cu
 	struct ps_quiescence_timing *cpu_i;
 
 	cpu_i = &(parsec->timing_info[remote_cpu].timing);
-	*curr = *cpu_i;
+	curr->time_in  = cpu_i->time_in;
+	curr->time_out = cpu_i->time_out;
 
 	ps_mem_fence();
 
@@ -183,7 +184,7 @@ __ps_timing_update_remote(struct parsec *parsec, struct ps_quiescence_timing *cu
 }
 
 static void
-ps_quiesce(struct parsec *parsec, coreid_t curr, ps_tsc_t *qsc)
+ps_quiesce(struct parsec *parsec, coreid_t curr, ps_tsc_t tsc, ps_tsc_t *qsc)
 {
 	int i, qsc_cpu;
 	ps_tsc_t min_known_qsc;
@@ -198,6 +199,7 @@ ps_quiesce(struct parsec *parsec, coreid_t curr, ps_tsc_t *qsc)
 		__ps_timing_update_remote(parsec, &t, qsc_cpu);
 		if (__ps_in_lib(&t)) {
 			if (min_known_qsc > t.time_in) min_known_qsc = t.time_in;
+			if (min_known_qsc < tsc) break;
 		}
 	}
 	*qsc = min_known_qsc;
@@ -227,30 +229,43 @@ __ps_smr_reclaim(coreid_t curr, struct ps_qsc_list *ql, struct ps_smr_info *si,
 	int increase_backlog = 0, i;
 	ps_tsc_t qsc, tsc;
 	assert(ps && ql && si);
-	assert(a);
 
 #ifdef OPTIMAL
 	tsc = a->tsc_free;
 	if (ps_try_quiesce(ps, tsc, &qsc)) increase_backlog = 1;
-#else
+#endif
+#ifdef GENERAL
+	if (!a) return ;
+	ps_quiesce(ps, curr, a->tsc_free, &qsc);
+#endif
+#ifdef REAL_TIME
+	if (!a) return ;
 	ps_quiesce(ps, curr, &qsc);
 #endif
 
 	/* Remove a batch worth of items from the qlist */
+#ifdef OPTIMAL
 	for (i = 0 ; i < PS_QLIST_BATCH ; i++) {
+#else
+	while(1) {
+#endif
 		a = __ps_qsc_peek(ql);
-		assert(a && __ps_mhead_isfree(a));
-		if (a->tsc_free > qsc) {
+		if (!a || a->tsc_free > qsc) {
+#ifdef OPTIMAL
 			increase_backlog = 1;
+#endif
 			break;
 		}
+		assert(a && __ps_mhead_isfree(a));
 
 		a = __ps_qsc_dequeue(ql);
 		__ps_mhead_reset(a);
 		si->qmemcnt--;
 		ffn(m, __ps_mhead_mem(a), 0, curr);
 	}
+#ifdef OPTIMAL
 	if (increase_backlog) si->qmemtarget += PS_QLIST_BATCH; /* TODO: shrink target */
+#endif
 
 	return;
 }
@@ -268,6 +283,7 @@ ps_init(struct parsec *ps)
 	assert(ps);
 	memset(ps, 0, sizeof(struct parsec));
 
+	ps_plat_mem_init();
 	ps->refcnt = 0;
 	for (i = 0 ; i < PS_NUMCORES ; i++) {
 		struct ps_quiescence_timing *t = &ps->timing_info[i].timing;

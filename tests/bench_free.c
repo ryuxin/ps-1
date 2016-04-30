@@ -6,11 +6,13 @@
 PS_SLAB_CREATE(local, PS_CACHE_LINE, PS_PAGE_SIZE)
 PS_SLAB_CREATE(remote, PS_CACHE_LINE, PS_PAGE_SIZE)
 
+#define CPU_FREQ 2000000
+#define TIMER_FREQ (CPU_FREQ*10)
 #define ITER       (10000000)
 #define RB_SZ   (1024 * 32)
-void *ptrs[ITER];
-unsigned long cost[ITER/10] PS_ALIGNED;
-unsigned long alloc[RB_SZ] PS_ALIGNED;
+void *ptrs[ITER/10];
+unsigned long cost[ITER] PS_ALIGNED;
+unsigned long alloc[ITER] PS_ALIGNED;
 void * volatile ring_buffer[RB_SZ] PS_ALIGNED;
 unsigned long long free_tsc, alloc_tsc;
 __thread int thd_local_id;
@@ -23,49 +25,57 @@ static int cmpfunc(const void * a, const void * b)
 void
 consumer(void)
 {
-	struct small *s;
-	unsigned long i = 0, jump = PS_NUMCORES-1, num = 0;
+	char *s, *h;
+	unsigned long i = 0, jump = PS_NUMCORES-1, k = 0;
 	unsigned long long start, end, tot = 0, mmax, mmin;
 
 	i = thd_local_id-1;
+	mmin = 1000000;
 	meas_barrier(PS_NUMCORES);
 
 	while(1) {
-		unsigned long off = i % RB_SZ;
-
-		while (!ring_buffer[off]) ;
-		s = ring_buffer[off];
-		ring_buffer[off] = NULL;
+		while (!ring_buffer[i]) ;
+		s = (char *)ring_buffer[i];
+		ring_buffer[i] = NULL;
 		if (s == (void *)-1) break;
+		h = s-sizeof(struct ps_mheader);
+		h[0] = 0;
+		ps_mem_fence();
 
 		start = ps_tsc();
 		ps_slab_free_remote(s);
 		end = ps_tsc();
-		if (thd_local_id == 1) {
-			cost[num % RB_SZ] = end-start;
-			tot += cost[numi % RB_SZ];
-			if (cost[num % RB_SZ] > mmax) mmax = cost[num % RB_SZ];
-			if (cost[num % RB_SZ] < mmin) mmin = cost[num % RB_SZ];
-			num++;
+		if (thd_local_id == 1 && k < ITER) {
+			cost[k] = end-start;
+			tot += cost[k];
+			if (cost[k] > mmax) mmax = cost[k];
+			if (cost[k] < mmin) mmin = cost[k];
+			k++;
 		}
 		i += jump;
+		if (i >= RB_SZ) i = thd_local_id-1;
 	}
-	free_tsc = tot / num;
-	printf("remote free avg %llu max %llu min %llu\n", free_tsc, mmax, mmin);
+	if (thd_local_id == 1) {
+		int t = tot/TIMER_FREQ;
+		qsort(cost, k, sizeof(unsigned long), cmpfunc);
+		free_tsc = tot / k;
+		printf("remote free timer %d avg %llu max %llu %lu %lu min %llu\n", t, free_tsc, mmax, cost[t], cost[k/100], mmin);
+		printf("remote free 99p %lu 99.9p %lu 99.99p %lu\n", cost[k/100], cost[k/1000], cost[k/10000]);
+	}
 }
 
 void
 producer(void)
 {
 	void *s;
-	unsigned long i;
+	unsigned long i, k = 0;
 	unsigned long long start, end, tot = 0, mmax, mmin;
 
 	mmax = 0;
 	mmin = 1000000;
 	meas_barrier(PS_NUMCORES);
 
-	for (i = 0 ; i < RB_ITER ; i++) {
+	for (i = 0 ; i < (PS_NUMCORES-1)*ITER ; i++) {
 		unsigned long off = i % RB_SZ;
 		
 		while (ring_buffer[off]) ; 
@@ -73,16 +83,21 @@ producer(void)
 		start = ps_tsc();
 		s = ps_slab_alloc_remote();
 		end = ps_tsc();
-		alloc[off] = end-start;
-		tot += alloc[off];
-		if (alloc[off] > mmax) mmax = alloc[off];
-		if (alloc[off] < mmin) mmin = alloc[off];
+		alloc[k] = end-start;
+		tot += alloc[k];
+		if (k < ITER) {
+			if (alloc[k] > mmax) mmax = alloc[k];
+			if (alloc[k] < mmin) mmin = alloc[k];
+			k++;
+		}
 
 		assert(s);
 		ring_buffer[off] = s;
 	}
-	alloc_tsc = tot / RB_ITER;
-	printf("remote alloc avg %llu max %llu min %llu\n", alloc_tsc, mmax, mmin);
+	qsort(alloc, k, sizeof(unsigned long), cmpfunc);
+	alloc_tsc = tot / ITER;
+	int t = tot/TIMER_FREQ;
+	printf("remote alloc timer %d avg %llu max %llu %lu %lu min %llu\n", t, alloc_tsc, mmax, alloc[t], alloc[k/100], mmin);
 }
 
 void *
@@ -101,6 +116,7 @@ void
 test_remote_frees(void)
 {
 	pthread_t child[PS_NUMCORES];
+	int i, ret;
 	
 	printf("Starting test for remote frees\n");
 
@@ -124,52 +140,91 @@ test_remote_frees(void)
 void
 test_local(void)
 {
-	int i, j;
-	unsigned long long s, mmin = 10000000;
-	unsigned long long e, mmax = 0, tot = 0;
+	int i, j, k = 0;
+	unsigned long long s, mmin, start, subt = 0;
+	unsigned long long e, mmax = 0, tot = 0, end;
 
-	ps_slab_free_local(ps_slab_alloc_local());
-	for (j = 0 ; j < 10 ; j++) {
+	mmin = 10000000;
+	for (i = 0 ; i < ITER/10 ; i++) ptrs[i] = ps_slab_alloc_local();
+	for (i = 0 ; i < ITER/10 ; i++) {
+		s = ps_tsc();
+		ps_slab_free_local(ptrs[i]);
+		e = ps_tsc();
+	}
+
+	for(j=0; j<10; j++) {
 		for (i = 0 ; i < ITER/10 ; i++) ptrs[i] = ps_slab_alloc_local();
+		start = ps_tsc();
 		for (i = 0 ; i < ITER/10 ; i++) {
 			s = ps_tsc();
 			ps_slab_free_local(ptrs[i]);
-			e = s_tsc();
-			cos[i] = e-s;
-			tot += cos[i]; 
-			if (cos[i] > mmax) mmax = cos[i];
-			if (cos[i] < mmin) mmin = cos[i];
+			e = ps_tsc();
+			cost[k] = e-s;
+			tot += cost[k]; 
+			if (cost[k] > mmax) mmax = cost[k];
+			if (cost[k] < mmin) mmin = cost[k];
+			k++;
+
 		}
+		end = ps_tsc();
+		subt += (end-start);
 	}
-	printf("local free avg %llu max %llu min %llu", tot/ITER, mman, mmin);
-	qsort(cos, ITER/10, sizeof(unsigned long), cmpfunc);
-	for(i=0; i<50; i++) printf("%d ", cost[i]);
-	printf("\n");
+	qsort(cost, k, sizeof(unsigned long), cmpfunc);
+	int t = subt/TIMER_FREQ;
+	printf("local free timer %d avg %llu max %llu %lu 99p %lu min %llu\n", t, tot/ITER, mmax, cost[t], cost[k/100], mmin);
 }
 
-void
-stats_print(struct ps_mem *m)
+void timer_gap(void)
 {
-	struct ps_slab_stats s;
-	int i;
+	int i, j;
+	unsigned long long s, e, start, end;
 
-	printf("Stats for slab @ %p\n", (void*)m);
-	ps_slabptr_stats(m, &s);
-	for (i = 0 ; i < PS_NUMCORES ; i++) {
-		printf("\tcore %d, slabs %ld, partial slabs %ld, nfree %ld, nremote %ld\n", 
-		       i, s.percore[i].nslabs, s.percore[i].npartslabs, s.percore[i].nfree, s.percore[i].nremote);
+	for(i=0; i<ITER/10; i++) {
+		s = ps_tsc();
+		for(j=0; j<10; j++) {
+			j++;
+			j--;
+		}
+		e = ps_tsc();
+		cost[i] = e-s;
 	}
+
+	start = ps_tsc();
+	for(i=0; i<ITER; i++) {
+		s = ps_tsc();
+		for(j=0; j<10; j++) {
+			j++;
+			j--;
+		}
+		e = ps_tsc();
+		cost[i] = e-s;
+	}
+	end = ps_tsc();
+
+	qsort(cost, ITER, sizeof(unsigned long), cmpfunc);
+	printf("total timer %lu\n", (end-start)/TIMER_FREQ);
+	/* for(i=0; i<50; i++) printf("%d ", cost[i]); */
+	/* printf("\n"); */
+}
+
+void set_smp_affinity()
+{
+	char cmd[64];
+	/* everything done is the python script. */
+	sprintf(cmd, "python set_smp_affinity.py %d %d", 40, getpid());
+	system(cmd);
 }
 
 int
 main(void)
 {
 	thd_local_id = 0;
+	set_smp_affinity();
 	thd_set_affinity(pthread_self(), 0);
+	printf("%d cores:\n", PS_NUMCORES);
+	/* timer_gap(); */
 
-	test_local();
-
-//	stats_print(&__ps_mem_l);
+	/* test_local(); */
 	test_remote_frees();
 
 	return 0;

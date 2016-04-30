@@ -29,7 +29,7 @@
 #include <urcu.h>
 
 // 0 -> ll, 1 -> parsec, 2-> urcu, 3->rwlock, 4->mcslock, 5->epoch, 6->brlock
-#define BENCH_OP 1
+#define BENCH_OP 2
 
 #define CACHE_LINE PS_CACHE_LINE
 #define PAGE_SIZE  PS_PAGE_SIZE
@@ -37,13 +37,13 @@
 #define CACHE_ALIGNED __attribute__((aligned(CACHE_LINE)))
 #define TRACE_FILE "/tmp/ll_100p_key"
 #define N_OPS (10000000)
-#define N_LOG (N_OPS / NUM_CPU)
+#define N_LOG (N_OPS / 1)
 #define N_1P  (N_OPS / 100 / NUM_CPU)
 
 __thread int thd_local_id;
 static char ops[N_OPS];
-unsigned int results[NUM_CPU][2];
-unsigned long p99_log[N_LOG] CACHE_ALIGNED;
+unsigned long p99_log[N_OPS] CACHE_ALIGNED;
+unsigned long p99_log_r[N_OPS] CACHE_ALIGNED;
 
 #if BENCH_OP == 0
 /********************************************************/
@@ -232,7 +232,7 @@ ck_brlock_t brlock;
 
 static int cmpfunc(const void * a, const void * b)
 {
-	return ( *(int*)a - *(int*)b );
+	return ( *(int*)b - *(int*)a );
 }
 static void Init(void)
 {
@@ -254,7 +254,9 @@ static void Init(void)
 static void Init_thd(void)
 {
 	thd_set_affinity(pthread_self(), thd_local_id);
-#if BENCH_OP == 2
+#if BENCH_OP == 1
+	ps_init_period(&ps, 1);
+#elif BENCH_OP == 2
 	rcu_register_thread();
 	rcu_init();
 #elif BENCH_OP == 5
@@ -265,10 +267,9 @@ static void Init_thd(void)
 	return ;
 }
 
-void bench(void) {
+void bench_read(void) {
 	int i, id, ret = 0;
-	unsigned long n_read = 0, n_update = 0, op_jump = NUM_CPU;
-	unsigned long long s, e, s1, e1, tot_cost_r = 0, tot_cost_w = 0, max = 0, cost;
+	unsigned long long s1, e1, tot = 0, cost;
 	
 	(void)ret;
 	id = thd_local_id;
@@ -277,205 +278,123 @@ void bench(void) {
 	last_alloc = ps_mem_alloc_bench();
 	assert(last_alloc);
 #endif		
-	s = ps_tsc();
-	for (i = 0 ; i < N_OPS/NUM_CPU; i++) {
+
+	for (i = 0 ; i < N_OPS; i++) {
 		s1 = ps_tsc();
-
-		if (ops[(unsigned long)id+op_jump*i]) {
 #if BENCH_OP == 0
-			ps_enter(&ps);
-			ll_modify(id);
-			ps_exit(&ps);
+		ps_enter(&ps);
+		ret = ll_traverse();
+		ps_exit(&ps);
+		assert(ret == LL_LENGTH);
 #elif BENCH_OP == 1
-			/* nil op -- alloc does quiescence */
-			ps_mem_free_bench(last_alloc);
-			last_alloc = ps_mem_alloc_bench();
-			assert(last_alloc);
+		ps_enter(&ps);
+		ret = nil_call(NULL);
+		ps_exit(&ps);
 #elif BENCH_OP == 2
-			synchronize_rcu();
+		rcu_read_lock();
+		rcu_read_unlock();
 #elif BENCH_OP == 3
-			ck_rwlock_write_lock(&rwlock);
-			ck_rwlock_write_unlock(&rwlock);
+		ck_rwlock_read_lock(&rwlock);
+		ck_rwlock_read_unlock(&rwlock);
 #elif BENCH_OP == 4
-			ck_spinlock_mcs_lock(&mcslock, &(mcslocks[id].lock_context));
-			ck_spinlock_mcs_unlock(&mcslock, &(mcslocks[id].lock_context));
+		ck_spinlock_mcs_lock(&mcslock, &(mcslocks[id].lock_context));
+		ck_spinlock_mcs_unlock(&mcslock, &(mcslocks[id].lock_context));
 #elif BENCH_OP == 5
-			ck_epoch_synchronize(&global_epoch, &(epoch_records[id].record));
+		ck_epoch_begin(&global_epoch, &(epoch_records[id].record));
+		ck_epoch_end(&global_epoch, &(epoch_records[id].record));
 #elif BENCH_OP == 6
-			ck_brlock_write_lock(&brlock);
-			ck_brlock_write_unlock(&brlock);
+		ck_brlock_read_lock(&brlock, &(brlock_readers[id].reader));
+		ck_brlock_read_unlock(&(brlock_readers[id].reader));
 #endif
-			e1 = ps_tsc();
-			cost = e1-s1;
-			tot_cost_w += cost;
-			n_update++;
-
-			if (id == 0) p99_log[N_LOG - n_update] = cost;
-		} else {
-#if BENCH_OP == 0
-			ps_enter(&ps);
-			ret = ll_traverse();
-			ps_exit(&ps);
-			assert(ret == LL_LENGTH);
-#elif BENCH_OP == 1
-			ps_enter(&ps);
-			ret = nil_call(NULL);
-			ps_exit(&ps);
-#elif BENCH_OP == 2
-			rcu_read_lock();
-			rcu_read_unlock();
-#elif BENCH_OP == 3
-			ck_rwlock_read_lock(&rwlock);
-			ck_rwlock_read_unlock(&rwlock);
-#elif BENCH_OP == 4
-			ck_spinlock_mcs_lock(&mcslock, &(mcslocks[id].lock_context));
-			ck_spinlock_mcs_unlock(&mcslock, &(mcslocks[id].lock_context));
-#elif BENCH_OP == 5
-			ck_epoch_begin(&global_epoch, &(epoch_records[id].record));
-			ck_epoch_end(&global_epoch, &(epoch_records[id].record));
-#elif BENCH_OP == 6
-			ck_brlock_read_lock(&brlock, &(brlock_readers[id].reader));
-			ck_brlock_read_unlock(&(brlock_readers[id].reader));
-#endif
-			e1 = ps_tsc();
-			cost = e1-s1;
-			tot_cost_r += cost;
-
-			if (id == 0) p99_log[n_read] = cost;
-			n_read++;
+		e1 = ps_tsc();
+		if (id == 1) {
+		  cost = e1-s1;
+		  p99_log_r[i] = cost;
+		  tot += (unsigned long long)cost;
 		}
-
-		if (cost > max) max = cost;
 	}
-	assert(n_read + n_update <= N_LOG);
-	e = ps_tsc();
-
-	if (n_read) tot_cost_r /= n_read;
-	if (n_update) tot_cost_w /= n_update;
-
-	results[id][0] = tot_cost_r;
-	results[id][1] = tot_cost_w;
-
-	if (id == 0) {
-		unsigned long r_99 = 0, w_99 = 0;
-		if (n_read) {
-			qsort(p99_log, n_read, sizeof(unsigned long), cmpfunc);
-			r_99 = p99_log[n_read - n_read / 100];
-		}
-		if (n_update) {
-			qsort(&p99_log[n_read], n_update, sizeof(unsigned long), cmpfunc);
-			w_99 = p99_log[N_LOG - 1 - n_update / 100];
-		}
-		printf("99p: read %lu write %lu\n", r_99, w_99);
+	if (id == 1) {
+		qsort(p99_log_r, N_OPS, sizeof(unsigned long), cmpfunc);
+		printf("thd %d read max %lu 99 %lu 99.9 %lu 99.99 %lu avg %llu\n", 
+		       id, p99_log_r[0], p99_log_r[N_OPS/100], p99_log_r[N_OPS/1000], p99_log_r[N_OPS/10000], tot/N_OPS);
 	}
 
+	return;
+}
 
-        printf("Thd %d: tot %lu ops (r %lu, u %lu) done, %llu (r %llu, w %llu) cycles per op, max %llu\n", 
-               id, n_read+n_update, n_read, n_update, (unsigned long long)(e-s)/(n_read + n_update), 
-               tot_cost_r, tot_cost_w, max);
+void bench_update(void) {
+	int i, id, ret = 0;
+	unsigned long long s1, e1, cost, tot = 0;
+	
+	(void)ret;
+	id = thd_local_id;
+#if BENCH_OP == 1
+	void *last_alloc;
+	last_alloc = ps_mem_alloc_bench();
+	assert(last_alloc);
+#endif		
 
+	for (i = 0 ; i < N_LOG; i++) {
+		s1 = ps_tsc();
+#if BENCH_OP == 0
+		ps_enter(&ps);
+		ll_modify(id);
+		ps_exit(&ps);
+#elif BENCH_OP == 1
+		/* nil op -- alloc does quiescence */
+		ps_mem_free_bench(last_alloc);
+		last_alloc = ps_mem_alloc_bench();
+		assert(last_alloc);
+		ps_quiesce_bench();
+#elif BENCH_OP == 2
+		synchronize_rcu();
+#elif BENCH_OP == 3
+		ck_rwlock_write_lock(&rwlock);
+		ck_rwlock_write_unlock(&rwlock);
+#elif BENCH_OP == 4
+		ck_spinlock_mcs_lock(&mcslock, &(mcslocks[id].lock_context));
+		ck_spinlock_mcs_unlock(&mcslock, &(mcslocks[id].lock_context));
+#elif BENCH_OP == 5
+		ck_epoch_synchronize(&global_epoch, &(epoch_records[id].record));
+#elif BENCH_OP == 6
+		ck_brlock_write_lock(&brlock);
+		ck_brlock_write_unlock(&brlock);
+#endif
+		e1 = ps_tsc();
+		cost = e1-s1;
+		tot += (unsigned long long)cost;
+		p99_log[i] = cost;
+	}
+	qsort(p99_log, N_LOG, sizeof(unsigned long), cmpfunc);
+	printf("thd %d update max %lu 99 %lu 99.9 %lu 99.99 %lu avg %llu\n", 
+	       id, p99_log[0], p99_log[N_LOG/100], p99_log[N_LOG/1000], p99_log[N_LOG/10000], tot/N_LOG);
 	return;
 }
 
 void * 
-worker(void *arg)
-{
-        ps_tsc_t s, e;
-	
+worker_read(void *arg)
+{	
 	thd_local_id = (int)arg;
 	Init_thd();	
 
-	s = ps_tsc();
-	/* printf("cpu %d (tid %d) starting @ %llu\n", thd_local_id, get_cpu(), s); */
-
 	meas_barrier(PS_NUMCORES);
-	bench();
+	bench_read();
 	meas_barrier(PS_NUMCORES);
-
-	if (thd_local_id == 0) {
-		int i;
-		unsigned long long tot_r = 0, tot_w = 0;
-		for (i = 0; i < NUM_CPU; i++) {
-			tot_r += results[i][0];
-			tot_w += results[i][1];
-
-			results[i][0] = 0;
-			results[i][1] = 0;
-		}
-		tot_r /= NUM_CPU;
-		tot_w /= NUM_CPU;
-
-		printf("Summary: %s, (r %llu, w %llu) cycles per op\n", TRACE_FILE, tot_r, tot_w);
-	}
-
-	e = ps_tsc();
-	/* printf("cpu %d done (%llu to %llu)\n", cpuid, s, e); */
 
 	return 0;
 }
 
-void
-trace_gen(int fd, unsigned int nops, unsigned int percent_update)
-{
-	unsigned int i;
+void * 
+worker_update(void *arg)
+{	
+	thd_local_id = (int)arg;
+	Init_thd();	
 
-	srand(time(NULL));
-	for (i = 0 ; i < nops ; i++) {
-		char value;
-		if ((unsigned int)rand() % 100 < percent_update) value = 'U';
-		else                               value = 'R';
-		if (write(fd, &value, 1) < 1) {
-			perror("Writing to trace file");
-			exit(-1);
-		}
-	}
-	lseek(fd, 0, SEEK_SET);
-}
+	meas_barrier(PS_NUMCORES);
+	bench_update();
+	meas_barrier(PS_NUMCORES);
 
-void load_trace()
-{
-	int fd, ret;
-	int bytes;
-	unsigned long i, n_read, n_update;
-	char buf[PAGE_SIZE+1];
-
-	ret = mlock(ops, N_OPS);
-	if (ret) {
-		printf("Cannot lock cache memory (%d). Check privilege. Exit.\n", ret);
-		exit(-1);
-	}
-
-	printf("loading trace file @%s...\n", TRACE_FILE);
-	/* read the entire trace into memory. */
-	fd = open(TRACE_FILE, O_RDONLY);
-	if (fd < 0) {
-		fd = open(TRACE_FILE, O_CREAT | O_RDWR, S_IRWXU);
-		assert(fd >= 0);
-		trace_gen(fd, N_OPS, 90);
-	}
-    
-	for (i = 0; i < (N_OPS / PAGE_SIZE); i++) {
-		bytes = read(fd, buf, PAGE_SIZE);
-		assert(bytes == PAGE_SIZE);
-		memcpy(&ops[i * PAGE_SIZE], buf, bytes);
-	}
-
-	if (N_OPS % PAGE_SIZE) {
-		bytes = read(fd, buf, PAGE_SIZE);
-		memcpy(&ops[i*PAGE_SIZE], buf, bytes);
-	}
-	n_read = n_update = 0;
-	for (i = 0; i < N_OPS; i++) {
-		if (ops[i] == 'R') { ops[i] = 0; n_read++; }
-		else if (ops[i] == 'U') { ops[i] = 1; n_update++; }
-		else assert(0);
-	}
-	printf("Trace: read %lu, update %lu, total %lu\n", n_read, n_update, (n_read+n_update));
-	assert(n_read+n_update == N_OPS);
-
-	close(fd);
-
-	return;
+	return 0;
 }
 
 void set_smp_affinity()
@@ -500,16 +419,15 @@ int main()
 	Init();
 	thd_local_id = 0;
 	thd_set_affinity(pthread_self(), 0);
-	load_trace();
+	printf("%d cores\n", NUM_CPU);
 
 	for (i = 1; i < NUM_CPU; i++) {
-		ret = pthread_create(&thds[i], 0, worker, (void *)i);
+		ret = pthread_create(&thds[i], 0, worker_read, (void *)i);
 		if (ret) exit(-1);
 	}
-
 	usleep(50000);
 
-	worker((void *)0);
+	worker_update((void *)0);
 
 	for (i = 1; i < NUM_CPU; i++) {
 		pthread_join(thds[i], (void *)&ret);

@@ -49,9 +49,9 @@ struct __ps_other_core {
 };
 
 struct ps_smr_percore {
-	ps_tsc_t period, deadline;
 	/* ps_quiescence_timing info of this CPU */
 	struct ps_quiescence_timing timing;
+	ps_tsc_t period, deadline;
 #ifdef OPTIMAL
 	/* ps_quiescence_timing info of other CPUs known by this CPU */
 	struct __ps_other_core timing_others[PS_NUMCORES];
@@ -105,12 +105,18 @@ __ps_smr_free(void *buf, struct ps_mem *mem, ps_free_fn_t ffn)
 	__ps_mhead_setfree(m, tsc);
 	__ps_qsc_enqueue(ql, m);
 	si->qmemcnt++;
+	if (si->qmemcnt > si->qmemmax) si->qmemmax = si->qmemcnt;
+#ifdef OPTIMAL
 	if (unlikely(si->qmemcnt >= si->qmemtarget)) __ps_smr_reclaim(curr_core, ql, si, mem, ffn);
+#endif
 }
 
 static inline void
 __ps_quiesce(struct ps_mem *mem, ps_free_fn_t ffn)
 {
+#ifdef OPTIMAL
+	return ;
+#endif
 	struct ps_smr_info *si;
 	struct ps_qsc_list *ql;
 	struct ps_smr_percore *ti;

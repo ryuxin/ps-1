@@ -217,9 +217,18 @@ stats_print(struct ps_mem *m)
 	}
 }
 
+void set_smp_affinity()
+{
+	char cmd[64];
+	/* everything done is the python script. */
+	sprintf(cmd, "python set_smp_affinity.py %d %d", 40, getpid());
+	system(cmd);
+}
+
 int
 main(void)
 {
+	set_smp_affinity();
 	thd_set_affinity(pthread_self(), 0);
 
 	test_perf();
