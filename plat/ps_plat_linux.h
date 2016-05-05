@@ -207,49 +207,16 @@ static inline void
 ps_lock_init(struct ps_lock *l)
 { l->o = 0; }
 
-#define GLB_MEM 100
-extern int glb_list_head, glb_list_tail;
-extern void *glb_ring_buffer[GLB_MEM];
-extern struct ps_lock glb_list_lock;
-
 /* Default allocation and deallocation functions */
-static inline void
-ps_plat_mem_init(void)
-{
-	void *m;
-	int i, ret;
-	glb_list_head = glb_list_tail = 0;
-	ps_lock_init(&glb_list_lock);
-	for(i=0; i<GLB_MEM-1; i++) {
-		ret = posix_memalign(&m, PS_PAGE_SIZE, PS_PAGE_SIZE);
-		assert(!ret);
-		memset(m, 0, PS_PAGE_SIZE);
-		glb_ring_buffer[i] = m;
-	}
-	glb_list_tail = GLB_MEM-2;
-	return ;
-}
 static inline void *
 ps_plat_alloc(size_t sz, coreid_t coreid)
 { 
 	void *m;
 	int ret;
 	(void)coreid; 
-	assert(sz == PS_PAGE_SIZE);
-
-	ps_lock_take(&glb_list_lock);
-	if (glb_list_head == glb_list_tail) {
-		ret = posix_memalign(&m, PS_PAGE_SIZE, sz);
-		assert(!ret);
-	} else  {
-		m = glb_ring_buffer[glb_list_head];
-		glb_list_head = (glb_list_head+1)%GLB_MEM;
-	}
+	ret = posix_memalign(&m, PS_PAGE_SIZE, sz);
+	assert(!ret);
 	memset(m, 0, sz);
-	ps_lock_release(&glb_list_lock);
-	/* ret = posix_memalign(&m, PS_PAGE_SIZE, sz); */
-	/* assert(!ret); */
-	/* memset(m, 0, sz); */
 
 	return m;
 	/* mmap(0, sz, PROT_READ|PROT_WRITE, MAP_ANONYMOUS|MAP_PRIVATE, -1, (size_t)0); */
@@ -259,16 +226,7 @@ static inline void
 ps_plat_free(void *s, size_t sz, coreid_t coreid)
 { 
 	(void)coreid; (void)sz;
-	ps_lock_take(&glb_list_lock);
-	if (glb_list_head == (1+glb_list_tail)%GLB_MEM) {
-		free(s);
-	} else  {
-		glb_ring_buffer[glb_list_tail] = s;
-		glb_list_tail = (glb_list_tail+1)%GLB_MEM;
-	}
-	ps_lock_release(&glb_list_lock);
-
-	/* free(s); */
+	free(s);
 	/* munmap(s, sz); */
 }
 

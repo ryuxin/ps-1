@@ -150,6 +150,7 @@ __ps_slab_mem_free(void *buf, struct ps_mem *mem, PS_SLAB_PARAMS)
 	unsigned int max_nobjs = __ps_slab_max_nobjs(obj_sz, allocsz, headoff);
 	struct ps_slab_freelist *fl;
 	coreid_t target;
+	struct ps_slab_info *si = &mem->percore[coreid].slab_info;
 	assert(__ps_slab_objmemsz(obj_sz) + headoff <= allocsz);
 	PS_SLAB_DEWARN;
 
@@ -170,8 +171,7 @@ __ps_slab_mem_free(void *buf, struct ps_mem *mem, PS_SLAB_PARAMS)
 	h->next     = next;
 	s->nfree++;		/* TODO: ditto */
 
-	if (s->nfree == max_nobjs) {
-		struct ps_slab_info *si = &mem->percore[coreid].slab_info;
+	if (s->nfree == max_nobjs /* && si->nslabs > 8 */) {
 
 		/* remove from the freelist */
 		fl = &si->fl;

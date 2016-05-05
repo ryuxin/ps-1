@@ -4,7 +4,7 @@
 #include <ps_slab.h>
 
 PS_SLAB_CREATE(local, PS_CACHE_LINE, PS_PAGE_SIZE)
-PS_SLAB_CREATE(remote, PS_CACHE_LINE, PS_PAGE_SIZE)
+PS_SLAB_CREATE(remote, 2*PS_CACHE_LINE, PS_PAGE_SIZE)
 
 #define CPU_FREQ 2000000
 #define TIMER_FREQ (CPU_FREQ*10)
@@ -26,10 +26,11 @@ void
 consumer(void)
 {
 	char *s, *h;
+	int id = thd_local_id;
 	unsigned long i = 0, jump = PS_NUMCORES-1, k = 0;
 	unsigned long long start, end, tot = 0, mmax, mmin;
 
-	i = thd_local_id-1;
+	i = id-1;
 	mmin = 1000000;
 	meas_barrier(PS_NUMCORES);
 
@@ -45,7 +46,7 @@ consumer(void)
 		start = ps_tsc();
 		ps_slab_free_remote(s);
 		end = ps_tsc();
-		if (thd_local_id == 1 && k < ITER) {
+		if (id == 1 && k < ITER) {
 			cost[k] = end-start;
 			tot += cost[k];
 			if (cost[k] > mmax) mmax = cost[k];
@@ -53,13 +54,13 @@ consumer(void)
 			k++;
 		}
 		i += jump;
-		if (i >= RB_SZ) i = thd_local_id-1;
+		if (i >= RB_SZ) i = id-1;
 	}
-	if (thd_local_id == 1) {
+	if (id == 1) {
 		int t = tot/TIMER_FREQ;
 		qsort(cost, k, sizeof(unsigned long), cmpfunc);
 		free_tsc = tot / k;
-		printf("remote free timer %d avg %llu max %llu %lu %lu min %llu\n", t, free_tsc, mmax, cost[t], cost[k/100], mmin);
+		printf("remote free timer %d avg %llu max %llu %lu min %llu tot %u\n", t, free_tsc, mmax, cost[t], mmin, k);
 		printf("remote free 99p %lu 99.9p %lu 99.99p %lu\n", cost[k/100], cost[k/1000], cost[k/10000]);
 	}
 }
@@ -68,36 +69,36 @@ void
 producer(void)
 {
 	void *s;
-	unsigned long i, k = 0;
+	unsigned long i = 0, k = 0;
 	unsigned long long start, end, tot = 0, mmax, mmin;
 
 	mmax = 0;
 	mmin = 1000000;
 	meas_barrier(PS_NUMCORES);
 
-	for (i = 0 ; i < (PS_NUMCORES-1)*ITER ; i++) {
-		unsigned long off = i % RB_SZ;
-		
-		while (ring_buffer[off]) ; 
-
-		start = ps_tsc();
-		s = ps_slab_alloc_remote();
-		end = ps_tsc();
-		alloc[k] = end-start;
-		tot += alloc[k];
-		if (k < ITER) {
-			if (alloc[k] > mmax) mmax = alloc[k];
-			if (alloc[k] < mmin) mmin = alloc[k];
+	while(1) {
+		if (!ring_buffer[i]) {
+			/* start = ps_tsc(); */
+			s = ps_slab_alloc_remote();
+			/* end = ps_tsc(); */
+			assert(s);
+			ring_buffer[i] = s;
+			/* if (k < ITER) { */
+			/*   alloc[k] = end-start; */
+			/*   tot += alloc[k]; */
+			/*   if (alloc[k] > mmax) mmax = alloc[k]; */
+			/*   if (alloc[k] < mmin) mmin = alloc[k]; */
+			/* } */
 			k++;
+			if (k == (PS_NUMCORES-1)*ITER) break;
 		}
-
-		assert(s);
-		ring_buffer[off] = s;
+		i = (i+1)%RB_SZ;
 	}
-	qsort(alloc, k, sizeof(unsigned long), cmpfunc);
-	alloc_tsc = tot / ITER;
-	int t = tot/TIMER_FREQ;
-	printf("remote alloc timer %d avg %llu max %llu %lu %lu min %llu\n", t, alloc_tsc, mmax, alloc[t], alloc[k/100], mmin);
+
+	/* qsort(alloc, k, sizeof(unsigned long), cmpfunc); */
+	/* alloc_tsc = tot / ITER; */
+	/* int t = tot/TIMER_FREQ; */
+	/* printf("remote alloc timer %d avg %llu max %llu %lu %lu min %llu\n", t, alloc_tsc, mmax, alloc[t], alloc[k/100], mmin); */
 }
 
 void *
@@ -119,6 +120,7 @@ test_remote_frees(void)
 	int i, ret;
 	
 	printf("Starting test for remote frees\n");
+	for(i=0; i<RB_SZ; i++) ring_buffer[i] = ps_slab_alloc_remote();
 
 	for (i = 1; i < PS_NUMCORES; i++) {
 		ret = pthread_create(&child[i], 0, child_fn, (void *)i);
@@ -128,7 +130,6 @@ test_remote_frees(void)
 		}
 	}
 
-	for(i=0; i<RB_SZ; i++) ring_buffer[i] = ps_slab_alloc_remote();
 	producer();
 	for(i=0; i<RB_SZ; i++) ring_buffer[i] = (void *)-1;
 	

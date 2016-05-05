@@ -29,7 +29,7 @@
 #include <urcu.h>
 
 // 0 -> ll, 1 -> parsec, 2-> urcu, 3->rwlock, 4->mcslock, 5->epoch, 6->brlock
-#define BENCH_OP 4
+#define BENCH_OP 2
 
 #define CACHE_LINE PS_CACHE_LINE
 #define PAGE_SIZE  PS_PAGE_SIZE
@@ -193,7 +193,7 @@ ll_modify(void *arg)
 
 #elif BENCH_OP == 1
 struct parsec ps;
-PS_PARSLAB_CREATE(bench, CACHE_LINE, PS_PAGE_SIZE * 8)
+PS_PARSLAB_CREATE(bench, CACHE_LINE, PS_PAGE_SIZE)
 void *
 nil_call(void *arg)
 {
@@ -238,10 +238,13 @@ static void Init(void)
 #if BENCH_OP == 0
 	ll_init();
 #elif BENCH_OP == 1
+	printf("parsec\n");
 	ps_init(&ps);
 	ps_mem_init_bench(&ps);
 #elif BENCH_OP == 2
 	rcu_init();
+#elif BENCH_OP == 4
+	printf("mcs lock\n");
 #elif BENCH_OP == 5
 	ck_epoch_init(&global_epoch);
 #elif BENCH_OP == 6
@@ -302,6 +305,7 @@ void bench_read(void) {
 		rcu_read_lock();
 		e1 = ps_tsc();
 		rcu_cost = e1-s1;
+		ps_mem_fence();
 		spin_delay(10000);
 		s1 = ps_tsc();
 		rcu_read_unlock();
@@ -334,29 +338,28 @@ void bench_update(void) {
 	int i, id, ret = 0;
 	unsigned long long s1, e1, cost, tot = 0;
 	int iter;
+	void *last_alloc;
 	
 	(void)ret;
 	id = thd_local_id;
 	iter = N_OPS;
-#if BENCH_OP == 1
-	void *last_alloc;
-	last_alloc = ps_mem_alloc_bench();
-	assert(last_alloc);
-#elif BENCH_OP == 2
+
+#if BENCH_OP == 2
 	iter = N_OPS/PS_NUMCORES;
-#endif		
+#endif
 
 	for (i = 0 ; i < iter; i++) {
+#if BENCH_OP == 1
+		last_alloc = ps_mem_alloc_bench();
+		assert(last_alloc);
+		ps_mem_free_bench(last_alloc);
+#endif
 		s1 = ps_tsc();
 #if BENCH_OP == 0
 		ps_enter(&ps);
 		ll_modify(id);
 		ps_exit(&ps);
 #elif BENCH_OP == 1
-		/* nil op -- alloc does quiescence */
-		ps_mem_free_bench(last_alloc);
-		last_alloc = ps_mem_alloc_bench();
-		assert(last_alloc);
 		ps_quiesce_bench();
 #elif BENCH_OP == 2
 		synchronize_rcu();

@@ -26,10 +26,6 @@ const int *cpu_assign 	     = identity_mapping;
 /* 		      3, 7, 11, 15, 19, 23, 27, 31, 35, 39, -1}; */
 __thread int core_local_id;
 
-int glb_list_head, glb_list_tail;
-void *glb_ring_buffer[GLB_MEM];
-struct ps_lock glb_list_lock;
-
 static void
 call_getrlimit(int id, char *name)
 {

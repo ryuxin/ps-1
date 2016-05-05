@@ -11,9 +11,9 @@
 #define PS_GLOBAL_H
 
 /* #define OPTIMAL */
-/* #define GENERAL */
-#define REAL_TIME
-#define MAX_REPONSE 100000
+#define GENERAL
+/* #define REAL_TIME */
+#define MAX_REPONSE 532950 
 
 #include <ps_plat.h>
 

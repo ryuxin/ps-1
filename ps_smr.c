@@ -283,7 +283,6 @@ ps_init(struct parsec *ps)
 	assert(ps);
 	memset(ps, 0, sizeof(struct parsec));
 
-	ps_plat_mem_init();
 	ps->refcnt = 0;
 	for (i = 0 ; i < PS_NUMCORES ; i++) {
 		struct ps_quiescence_timing *t = &ps->timing_info[i].timing;
