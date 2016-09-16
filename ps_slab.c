@@ -129,6 +129,7 @@ __ps_slab_mem_remote_free(struct ps_mem *mem, struct ps_mheader *h, coreid_t cor
 	
 	ps_tsc_locality(&tmpcoreid, &numaid);
 	r = &mem->percore[core_target].slab_remote[numaid];
+	/* r = &mem->percore[core_target].slab_remote[tmpcoreid]; */
 
 	__ps_stack_push(r, h);
 }
@@ -153,6 +154,7 @@ __ps_slab_mem_remote_process(struct ps_mem *mem, struct ps_slab_info *si, PS_SLA
 
 		h = __ps_stack_clear(r);
 		locality = (locality + 1) % PS_NUMLOCALITIES;
+		/* locality = (locality + 1) % PS_NUMCORES; */
 	} while (!h && locality != si->remote_token);
 
 	si->remote_token = locality;

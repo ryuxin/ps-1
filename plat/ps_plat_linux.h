@@ -27,7 +27,7 @@ typedef u16_t localityid_t;
 #define PS_ALIGNED     __attribute__((aligned(PS_CACHE_LINE)))
 #define PS_WORDALIGNED __attribute__((aligned(PS_WORD)))
 #ifndef PS_NUMCORES
-#define PS_NUMCORES      (39)
+#define PS_NUMCORES      (20)
 #endif
 #ifndef PS_NUMLOCALITIES
 #define PS_NUMLOCALITIES 4

@@ -117,6 +117,7 @@ struct ps_slab_remote_list {
 	struct ps_mheader *remote_frees;
 	char  padding[PS_CACHE_PAD-sizeof(struct ps_mheader *)%PS_CACHE_PAD];
 } PS_PACKED PS_ALIGNED;
+/* } PS_PACKED __attribute__((aligned(PS_PAGE_SIZE))); */
 
 static inline void
 __ps_stack_push(struct ps_slab_remote_list *head, struct ps_mheader *n)
@@ -209,7 +210,8 @@ struct ps_mem_percore {
 	 * numa nodes (this node, and the destination node).
 	 */
 	struct ps_slab_remote_list slab_remote[PS_NUMLOCALITIES] PS_ALIGNED;
-} PS_ALIGNED;
+	/* struct ps_slab_remote_list slab_remote[PS_NUMCORES] PS_ALIGNED; */
+} PS_PACKED PS_ALIGNED;
 
 struct ps_locality_info {
 	localityid_t core_locality[PS_NUMCORES];

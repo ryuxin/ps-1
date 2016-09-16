@@ -31,13 +31,14 @@ struct ps_slab {
 	ps_desc_t start, end;	/* A slab used as a namespace: min and max descriptor ids */
 	size_t    memsz;	/* size of backing memory */
 	coreid_t  coreid;	/* which is the home core for this slab? */
-	char   pad[PS_CACHE_LINE-(sizeof(void *)+sizeof(size_t)+sizeof(u16_t)+sizeof(ps_desc_t)*2)];
+        char padding[PS_CACHE_PAD-(sizeof(void *)+sizeof(ps_desc_t)*2+sizeof(size_t)+sizeof(coreid_t))%PS_CACHE_PAD];
+	/* char   pad[PS_CACHE_LINE-(sizeof(void *)+sizeof(size_t)+sizeof(u16_t)+sizeof(ps_desc_t)*2)]; */
 
 	/* Frequently modified data on the owning core... */
 	struct ps_mheader *freelist; /* free objs in this slab */
 	struct ps_list     list;     /* freelist of slabs */
 	size_t             nfree;    /* # allocations in freelist */
-} PS_PACKED;
+} PS_PACKED PS_ALIGNED;
 
 
 /*** Operations on the freelist of slabs ***/
@@ -171,7 +172,7 @@ __ps_slab_mem_free(void *buf, struct ps_mem *mem, PS_SLAB_PARAMS)
 	h->next     = next;
 	s->nfree++;		/* TODO: ditto */
 
-	if (s->nfree == max_nobjs /* && si->nslabs > 8 */) {
+	if (s->nfree == max_nobjs && si->nslabs > 8) {
 
 		/* remove from the freelist */
 		fl = &si->fl;
