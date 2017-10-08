@@ -51,15 +51,15 @@ struct __ps_other_core {
 struct ps_smr_percore {
 	/* ps_quiescence_timing info of this CPU */
 	struct ps_quiescence_timing timing;
-	ps_tsc_t period, deadline;
-#ifdef OPTIMAL
-	/* ps_quiescence_timing info of other CPUs known by this CPU */
-	struct __ps_other_core timing_others[PS_NUMCORES];
-	/* padding an additional cacheline for prefetching */
-	char __padding[PS_CACHE_PAD - (((sizeof(struct __ps_other_core)*PS_NUMCORES)+sizeof(struct ps_quiescence_timing)+2*sizeof(ps_tsc_t)) % PS_CACHE_LINE)];
-#else
-	char __padding[PS_CACHE_PAD - ((sizeof(struct ps_quiescence_timing)+2*sizeof(ps_tsc_t)) % PS_CACHE_LINE)];
-#endif
+/* 	ps_tsc_t period, deadline; */
+/* #ifdef OPTIMAL */
+/* 	/\* ps_quiescence_timing info of other CPUs known by this CPU *\/ */
+/* 	struct __ps_other_core timing_others[PS_NUMCORES]; */
+/* 	/\* padding an additional cacheline for prefetching *\/ */
+/* 	char __padding[PS_CACHE_PAD - (((sizeof(struct __ps_other_core)*PS_NUMCORES)+sizeof(struct ps_quiescence_timing)+2*sizeof(ps_tsc_t)) % PS_CACHE_LINE)]; */
+/* #else */
+/* 	char __padding[PS_CACHE_PAD - (2*sizeof(ps_tsc_t) % PS_CACHE_LINE)]; */
+/* #endif */
 } PS_ALIGNED PS_PACKED;
 
 struct parsec {
@@ -111,6 +111,7 @@ __ps_smr_free(void *buf, struct ps_mem *mem, ps_free_fn_t ffn)
 #endif
 }
 
+extern __thread ps_tsc_t _ps_period, _ps_deadline;
 static inline void
 __ps_quiesce(struct ps_mem *mem, ps_free_fn_t ffn)
 {
@@ -128,9 +129,11 @@ __ps_quiesce(struct ps_mem *mem, ps_free_fn_t ffn)
 	ql  = &si->qsc_list;
 	ti  = &si->ps->timing_info[curr];
 
-	if (tsc >= ti->deadline) {
+	/* if (tsc >= ti->deadline) { */
+	/* 	ti->deadline = tsc + ti->period; */
+	if (tsc >= _ps_deadline) {
+		_ps_deadline = tsc + _ps_period;
 		__ps_smr_reclaim(curr, ql, si, mem, ffn);
-		ti->deadline = tsc + ti->period;
 	}
 
 	return;

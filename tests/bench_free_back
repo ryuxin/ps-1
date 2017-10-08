@@ -1,0 +1,243 @@
+#include <stdio.h>
+#include <stdlib.h>
+
+#include <ps_slab.h>
+
+#define REMOTE_SZ (2*PS_CACHE_LINE - sizeof(struct ps_mheader))
+PS_SLAB_CREATE(local, PS_CACHE_LINE, PS_PAGE_SIZE)
+PS_SLAB_CREATE(remote, REMOTE_SZ, PS_PAGE_SIZE)
+
+#define CPU_FREQ   (2000000)
+#define TIMER_FREQ (CPU_FREQ*10)
+#define ITER       (10000000)
+#define RB_SZ      (1024)
+#define NODE_SZ    (PS_CACHE_LINE/sizeof(void *))
+#define PRINTER    (PS_NUMCORES-1)
+struct node {
+        volatile void * p[NODE_SZ];
+	char  padding[PS_CACHE_LINE];
+}PS_PACKED PS_ALIGNED;
+/* void *ptrs[ITER/10]; */
+unsigned long cost[ITER] PS_ALIGNED;
+volatile struct node ring_buffer[RB_SZ] PS_ALIGNED;
+unsigned long long free_tsc, alloc_tsc;
+__thread int thd_local_id;
+
+static int cmpfunc(const void * a, const void * b)
+{
+	return ( *(int*)b - *(int*)a);
+}
+
+void
+consumer(void)
+{
+	char *s, *h;
+	int id = thd_local_id, tf = 0;
+	unsigned long i = 0, jump = PS_NUMCORES-1, k = 0, j;
+	unsigned long long start, end, tot = 0, mmin;
+
+	i = id-1;
+	mmin = 1000000;
+	meas_barrier(PS_NUMCORES);
+
+	while(1) {
+		for (j=0; j<NODE_SZ; j++) {
+			if (!ring_buffer[i].p[j]) continue;
+
+			s = (char *)(ring_buffer[i].p[j]);
+			if (s == (void *)-1) goto out;
+			ring_buffer[i].p[j] = NULL;
+			if (i != ((int *)s)[0]) printf("i %d s %d\n", i, ((int *)s)[0]);
+			assert(i == ((int *)s)[0]);
+			h = s-sizeof(struct ps_mheader);
+			h[0] = 0;
+			ps_mem_fence();
+
+			start = ps_tsc();
+			ps_slab_free_remote(s);
+			end = ps_tsc();
+			mmin = end-start;
+			if (id == PRINTER && k < ITER) {
+				cost[k] = mmin;
+				tot += cost[k];
+				k++;
+			}
+			tf++;
+		}
+		i += jump;
+		if (i >= RB_SZ) i = id-1;
+	}
+out:
+	if (id == PRINTER) {
+		printf("thd %d free tot %d\n", id, tf);
+		int t = tot/TIMER_FREQ;
+		qsort(cost, k, sizeof(unsigned long), cmpfunc);
+		free_tsc = tot / k;
+		printf("remote free timer %d avg %llu max %lu %lu min %lu tot %u\n", t, free_tsc, cost[0], cost[t], cost[k-1], k);
+		printf("remote free 99p %lu 99.9p %lu 99.99p %lu\n", cost[k/100], cost[k/1000], cost[k/10000]);
+	}
+}
+
+void
+producer(void)
+{
+	void *s;
+	unsigned long i = 0, k = RB_SZ*NODE_SZ, j;
+	unsigned long long start, end, tot = 0;
+
+	meas_barrier(PS_NUMCORES);
+
+	while(1) {
+		for (j=0; j<NODE_SZ; j++) {
+			if (ring_buffer[i].p[j]) continue;
+			s = ps_slab_alloc_remote();
+			assert(s);
+			((int *)s)[0] = i;
+			ring_buffer[i].p[j] = s;
+			k++;
+		}
+		if (k >= (PS_NUMCORES-1)*ITER) break;
+		i = (i+1)%RB_SZ;
+	}
+
+	printf("thd %d alloc tot %d\n", thd_local_id, k+RB_SZ);
+}
+
+void *
+child_fn(void *d)
+{
+	(void)d;
+	
+	thd_local_id = (int)d;
+	thd_set_affinity(pthread_self(), (int)d);
+	consumer();
+	
+	return NULL;
+}
+
+void
+test_remote_frees(void)
+{
+	pthread_t child[PS_NUMCORES];
+	int i, ret, *s, j;
+	
+	printf("Starting test for remote frees\n");
+	for(i=0; i<RB_SZ; i++) {
+		for (j=0; j<NODE_SZ; j++) {
+			s = (int *)ps_slab_alloc_remote();
+			s[0] = i;
+			ring_buffer[i].p[j] = (void *)s;
+		}
+	}
+
+	for (i = 1; i < PS_NUMCORES; i++) {
+		ret = pthread_create(&child[i], 0, child_fn, (void *)i);
+		if (ret) {
+			perror("pthread create thd fail\n");
+			printf("pthread create of child %d\n", i);
+			exit(-1);
+		}
+	}
+
+	producer();
+	for(i=0; i<RB_SZ; i++) for (j=0; j<NODE_SZ; j++) ring_buffer[i].p[j] = (void *)-1;
+	
+	for (i = 1; i < PS_NUMCORES; i++) {
+		pthread_join(child[i], NULL);
+	}
+}
+
+/* void */
+/* test_local(void) */
+/* { */
+/* 	int i, j, k = 0; */
+/* 	unsigned long long s, mmin, start, subt = 0; */
+/* 	unsigned long long e, mmax = 0, tot = 0, end; */
+
+/* 	mmin = 10000000; */
+/* 	for (i = 0 ; i < ITER/10 ; i++) ptrs[i] = ps_slab_alloc_local(); */
+/* 	for (i = 0 ; i < ITER/10 ; i++) { */
+/* 		s = ps_tsc(); */
+/* 		ps_slab_free_local(ptrs[i]); */
+/* 		e = ps_tsc(); */
+/* 	} */
+
+/* 	for(j=0; j<10; j++) { */
+/* 		for (i = 0 ; i < ITER/10 ; i++) ptrs[i] = ps_slab_alloc_local(); */
+/* 		start = ps_tsc(); */
+/* 		for (i = 0 ; i < ITER/10 ; i++) { */
+/* 			s = ps_tsc(); */
+/* 			ps_slab_free_local(ptrs[i]); */
+/* 			e = ps_tsc(); */
+/* 			cost[k] = e-s; */
+/* 			tot += cost[k];  */
+/* 			if (cost[k] > mmax) mmax = cost[k]; */
+/* 			if (cost[k] < mmin) mmin = cost[k]; */
+/* 			k++; */
+
+/* 		} */
+/* 		end = ps_tsc(); */
+/* 		subt += (end-start); */
+/* 	} */
+/* 	qsort(cost, k, sizeof(unsigned long), cmpfunc); */
+/* 	int t = subt/TIMER_FREQ; */
+/* 	printf("local free timer %d avg %llu max %llu %lu 99p %lu min %llu\n", t, tot/ITER, mmax, cost[t], cost[k/100], mmin); */
+/* } */
+
+/* void timer_gap(void) */
+/* { */
+/* 	int i, j; */
+/* 	unsigned long long s, e, start, end; */
+
+/* 	for(i=0; i<ITER/10; i++) { */
+/* 		s = ps_tsc(); */
+/* 		for(j=0; j<10; j++) { */
+/* 			j++; */
+/* 			j--; */
+/* 		} */
+/* 		e = ps_tsc(); */
+/* 		cost[i] = e-s; */
+/* 	} */
+
+/* 	start = ps_tsc(); */
+/* 	for(i=0; i<ITER; i++) { */
+/* 		s = ps_tsc(); */
+/* 		for(j=0; j<10; j++) { */
+/* 			j++; */
+/* 			j--; */
+/* 		} */
+/* 		e = ps_tsc(); */
+/* 		cost[i] = e-s; */
+/* 	} */
+/* 	end = ps_tsc(); */
+
+/* 	qsort(cost, ITER, sizeof(unsigned long), cmpfunc); */
+/* 	printf("total timer %lu\n", (end-start)/TIMER_FREQ); */
+/* } */
+
+void set_smp_affinity()
+{
+	char cmd[64];
+	/* everything done is the python script. */
+	sprintf(cmd, "python set_smp_affinity.py %d %d", 40, getpid());
+	system(cmd);
+}
+
+int
+main(void)
+{
+	thd_local_id = 0;
+	set_smp_affinity();
+	thd_set_affinity(pthread_self(), 0);
+	printf("%d cores:\n", PS_NUMCORES);
+	/* timer_gap(); */
+
+	/* test_local(); */
+	test_remote_frees();
+
+	/* memset(cost, 0, sizeof(cost)); */
+	/* memset(ring_buffer, 0, sizeof(ring_buffer)); */
+	/* printf("========after warm up========\n"); */
+	/* test_remote_frees(); */
+	return 0;
+}

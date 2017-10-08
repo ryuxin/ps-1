@@ -113,37 +113,37 @@ __ps_qsc_clear(struct ps_qsc_list *l)
 	return m;
 }
 
+#define NUM_REMOTE_LIST (PS_NUMCORES_PER_SOCKET)
+/* #define NUM_REMOTE_LIST (1) */
 struct ps_slab_remote_list {
-	struct ps_mheader *remote_frees;
-	char  padding[PS_CACHE_PAD-sizeof(struct ps_mheader *)%PS_CACHE_PAD];
+	/* struct ps_mheader *remote_frees; */
+	/* char  padding[PS_CACHE_PAD-sizeof(struct ps_mheader *)%PS_CACHE_PAD]; */
+	struct ps_mheader *remote_frees[(PS_CACHE_LINE/sizeof(struct ps_mheader *))];
+	char  padding[PS_CACHE_LINE];
 } PS_PACKED PS_ALIGNED;
-/* } PS_PACKED __attribute__((aligned(PS_PAGE_SIZE))); */
 
 static inline void
-__ps_stack_push(struct ps_slab_remote_list *head, struct ps_mheader *n)
+__ps_stack_push(struct ps_mheader **h, struct ps_mheader *n)
 {
 	struct ps_mheader *t;
-	struct ps_mheader **h;
 
-	h = &head->remote_frees;
 	do {
-		t = *h;
+		t       = *h;
 		n->next = t;
 	} while(!ps_cas((unsigned long *)h, (unsigned long)t, (unsigned long)n));
 }
 
 static inline struct ps_mheader *
-__ps_stack_clear(struct ps_slab_remote_list *l)
+__ps_stack_clear(struct ps_mheader **h)
 {
-	struct ps_mheader *h;
-	struct ps_mheader **head;
+	struct ps_mheader *t;
 
-	head = &l->remote_frees;
+
 	do {
-		h = *head;
-	} while(!ps_cas((unsigned long *)head, (unsigned long)h, (unsigned long)NULL));
+		t = *h;
+	} while(!ps_cas((unsigned long *)h, (unsigned long)t, (unsigned long)NULL));
 
-	return h;
+	return t;
 }
 
 struct ps_slab_info {
@@ -210,7 +210,6 @@ struct ps_mem_percore {
 	 * numa nodes (this node, and the destination node).
 	 */
 	struct ps_slab_remote_list slab_remote[PS_NUMLOCALITIES] PS_ALIGNED;
-	/* struct ps_slab_remote_list slab_remote[PS_NUMCORES] PS_ALIGNED; */
 } PS_PACKED PS_ALIGNED;
 
 struct ps_locality_info {

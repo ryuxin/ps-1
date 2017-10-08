@@ -129,11 +129,30 @@ __ps_slab_mem_remote_free(struct ps_mem *mem, struct ps_mheader *h, coreid_t cor
 	
 	ps_tsc_locality(&tmpcoreid, &numaid);
 	r = &mem->percore[core_target].slab_remote[numaid];
-	/* r = &mem->percore[core_target].slab_remote[tmpcoreid]; */
 
-	__ps_stack_push(r, h);
+	__ps_stack_push(&r->remote_frees[tmpcoreid % NUM_REMOTE_LIST], h);
 }
 
+static inline int
+__ps_slab_mem_remote_clear(struct ps_mem *mem, int locality, PS_SLAB_PARAMS)
+{
+	int i, ret = 0;
+	struct ps_mheader *h, *n;
+	struct ps_slab_remote_list *r = &mem->percore[coreid].slab_remote[locality];
+
+	for(i=0; i<NUM_REMOTE_LIST; i++) {
+		h = r->remote_frees[i];
+		if (h) h = __ps_stack_clear(&r->remote_frees[i]);
+		while (h) {
+			n       = h->next;
+			h->next = NULL;
+			__ps_slab_mem_free(__ps_mhead_mem(h), mem, PS_SLAB_ARGS);
+			h       = n;
+			ret     = 1;
+		}
+	}
+	return ret;
+}
 /* 
  * This function wants to contend cache-lines with another numa chip
  * at most once, or else the latency will blow up.  It can detect this
@@ -145,24 +164,14 @@ __ps_slab_mem_remote_free(struct ps_mem *mem, struct ps_mheader *h, coreid_t cor
 void
 __ps_slab_mem_remote_process(struct ps_mem *mem, struct ps_slab_info *si, PS_SLAB_PARAMS)
 {
-	struct ps_mheader *h, *n;
 	unsigned long locality = si->remote_token;
+	int ret;
 	PS_SLAB_DEWARN;
 
 	do {
-		struct ps_slab_remote_list *r = &mem->percore[coreid].slab_remote[locality];
-
-		h = __ps_stack_clear(r);
+		ret = __ps_slab_mem_remote_clear(mem, locality, PS_SLAB_ARGS);
 		locality = (locality + 1) % PS_NUMLOCALITIES;
-		/* locality = (locality + 1) % PS_NUMCORES; */
-	} while (!h && locality != si->remote_token);
+	} while (!ret && locality != si->remote_token);
 
 	si->remote_token = locality;
-
-	while (h) {
-		n       = h->next;
-		h->next = NULL;
-		__ps_slab_mem_free(__ps_mhead_mem(h), mem, PS_SLAB_ARGS);
-		h       = n;
-	}
 }

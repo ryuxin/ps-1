@@ -191,6 +191,9 @@ __ps_slab_mem_free(void *buf, struct ps_mem *mem, PS_SLAB_PARAMS)
 	return;
 }
 
+/* extern __thread int slab_malloc; */
+/* extern __thread int slab_aloc_num; */
+/* extern __thread unsigned long long dtot; */
 static inline void *
 __ps_slab_mem_alloc(struct ps_mem *mem, PS_SLAB_PARAMS)
 {
@@ -200,15 +203,21 @@ __ps_slab_mem_alloc(struct ps_mem *mem, PS_SLAB_PARAMS)
 	assert(obj_sz + headoff <= allocsz);
 	PS_SLAB_DEWARN;
 
+	/* unsigned long long ts, te; */
+	/* ts = ps_tsc(); */
 	si->salloccnt++;
 	if (unlikely((si->salloccnt % PS_REMOTE_BATCH) == 0)) {
 		__ps_slab_mem_remote_process(mem, si, PS_SLAB_ARGS);
 	}
+	/* if (unlikely(!si->fl.list)) { */
+	/* 	__ps_slab_mem_remote_process(mem, si, PS_SLAB_ARGS); */
+	/* } */
 
 	s = si->fl.list;
 	if (unlikely(!s)) {
 		/* allocation function must initialize s->memory */
 		s = afn(mem, allocsz, coreid);
+		/* slab_malloc++; */
 		if (unlikely(!s)) return NULL;
 		
 		__ps_slab_init(s, si, PS_SLAB_ARGS);
@@ -232,6 +241,9 @@ __ps_slab_mem_alloc(struct ps_mem *mem, PS_SLAB_PARAMS)
 	assert(!__ps_mhead_isfree(h));
 	__ps_slab_freelist_check(&si->fl);
 
+	/* te = ps_tsc(); */
+	/* slab_aloc_num++; */
+	/* dtot += (te - ts); */
 	return __ps_mhead_mem(h);
 }
 

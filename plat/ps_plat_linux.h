@@ -26,11 +26,14 @@ typedef u16_t localityid_t;
 #define PS_PACKED      __attribute__((packed))
 #define PS_ALIGNED     __attribute__((aligned(PS_CACHE_LINE)))
 #define PS_WORDALIGNED __attribute__((aligned(PS_WORD)))
+#ifndef PS_NUMCORES_PER_SOCKET
+#define PS_NUMCORES_PER_SOCKET      (10)
+#endif
 #ifndef PS_NUMCORES
-#define PS_NUMCORES      (20)
+#define PS_NUMCORES      (30)
 #endif
 #ifndef PS_NUMLOCALITIES
-#define PS_NUMLOCALITIES 4
+#define PS_NUMLOCALITIES (4)
 #endif
 #define PS_PAGE_SIZE   4096
 #define PS_RNDUP(v, a) (-(-(v) & -(a))) /* from blogs.oracle.com/jwadams/entry/macros_and_powers_of_two */
@@ -51,6 +54,7 @@ extern const int *cpu_assign;
 #ifndef PS_REMOTE_BATCH
 /* Needs to be a power of 2 */
 #define PS_REMOTE_BATCH 64
+/* #define PS_REMOTE_BATCH 2048 */
 #endif
 
 /* 
@@ -98,15 +102,16 @@ ps_tsc(void)
 static inline ps_tsc_t
 ps_tsc_locality(coreid_t *coreid, localityid_t *numaid)
 {
-	unsigned long a, d, c;
+	/* unsigned long a, d, c; */
 
-	__asm__ __volatile__("rdtscp" : "=a" (a), "=d" (d), "=c" (c) : );
-	*coreid = c & 0xFFF; 	/* lower 12 bits in Linux = coreid */
-	*numaid = c >> 12; 	/* next 8 = socket/numa id */
+	/* __asm__ __volatile__("rdtscp" : "=a" (a), "=d" (d), "=c" (c) : ); */
+	/* *coreid = c & 0xFFF; 	/\* lower 12 bits in Linux = coreid *\/ */
+	/* *numaid = c >> 12; 	/\* next 8 = socket/numa id *\/ */
 	*coreid = core_local_id;
 	*numaid = cpu_assign[core_local_id] % 4;
 
-	return ((u64_t)d << 32) | (u64_t)a;
+	/* return ((u64_t)d << 32) | (u64_t)a; */
+	return ps_tsc();
 }
 
 static inline unsigned int
@@ -213,7 +218,7 @@ ps_plat_alloc(size_t sz, coreid_t coreid)
 { 
 	void *m;
 	int ret;
-	(void)coreid; 
+	(void)coreid;
 	ret = posix_memalign(&m, PS_PAGE_SIZE, sz);
 	assert(!ret);
 	memset(m, 0, sz);

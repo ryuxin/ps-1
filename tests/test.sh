@@ -1,0 +1,41 @@
+ #!/bin/bash
+
+ ./bench_free.test 1 >> pfwr_r
+./bench_free.test 2 >> pfwr_r
+./bench_free.test 3 >> pfwr_r
+./bench_free.test 4 >> pfwr_r
+./bench_free.test 5 >> pfwr_r
+./bench_free.test 6 >> pfwr_r
+./bench_free.test 7 >> pfwr_r
+./bench_free.test 8 >> pfwr_r
+./bench_free.test 9 >> pfwr_r
+./bench_free.test 10 >> pfwr_r
+./bench_free.test 11 >> pfwr_r
+./bench_free.test 12 >> pfwr_r
+./bench_free.test 13 >> pfwr_r
+./bench_free.test 14 >> pfwr_r
+./bench_free.test 15 >> pfwr_r
+./bench_free.test 16 >> pfwr_r
+./bench_free.test 17 >> pfwr_r
+./bench_free.test 18 >> pfwr_r
+./bench_free.test 19 >> pfwr_r
+./bench_free.test 20 >> pfwr_r
+./bench_free.test 21 >> pfwr_r
+./bench_free.test 22 >> pfwr_r
+./bench_free.test 23 >> pfwr_r
+./bench_free.test 24 >> pfwr_r
+./bench_free.test 25 >> pfwr_r
+./bench_free.test 26 >> pfwr_r
+./bench_free.test 27 >> pfwr_r
+./bench_free.test 28 >> pfwr_r
+./bench_free.test 29 >> pfwr_r
+./bench_free.test 30 >> pfwr_r
+./bench_free.test 31 >> pfwr_r
+./bench_free.test 32 >> pfwr_r
+./bench_free.test 33 >> pfwr_r
+./bench_free.test 34 >> pfwr_r
+#./bench_free.test 35 >> pfwr_r
+#./bench_free.test 36 >> pfwr_r
+#./bench_free.test 37 >> pfwr_r
+#./bench_free.test 38 >> pfwr_r
+

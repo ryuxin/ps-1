@@ -169,6 +169,7 @@ ps_try_quiesce(struct parsec *p, ps_tsc_t tsc, ps_tsc_t *qsc_tsc)
 #endif
 
 #ifdef GENERAL
+__thread ps_tsc_t _ps_period, _ps_deadline = 0;
 static inline void
 __ps_timing_update_remote(struct parsec *parsec, struct ps_quiescence_timing *curr, int remote_cpu)
 {
@@ -183,6 +184,35 @@ __ps_timing_update_remote(struct parsec *parsec, struct ps_quiescence_timing *cu
 	return;
 }
 
+/* struct ps_quiescence_timing_pact { */
+/* 	ps_tsc_t     time_in, time_out; */
+/* } PS_PACKED; */
+
+/* static void */
+/* ps_quiesce(struct parsec *parsec, coreid_t curr, ps_tsc_t tsc, ps_tsc_t *qsc) */
+/* { */
+/* 	int i, qsc_cpu; */
+/* 	ps_tsc_t min_known_qsc; */
+/* 	struct ps_quiescence_timing_pact t[PS_NUMCORES]; */
+
+/* 	min_known_qsc = ps_tsc(); */
+/* 	for (i = 1 ; i < PS_NUMCORES; i++) { */
+/* 		/\* Make sure we don't all hammer core 0... *\/ */
+/* 		qsc_cpu = (curr + i) % PS_NUMCORES; */
+/* 		assert(qsc_cpu != curr); */
+
+/* 		__ps_timing_update_remote(parsec, (struct ps_quiescence_timing *)&t[i], qsc_cpu); */
+/* 	} */
+/* 	for (i = 1 ; i < PS_NUMCORES; i++) { */
+/* 		if (__ps_in_lib((struct ps_quiescence_timing *)&t[i])) { */
+/* 			if (min_known_qsc > t[i].time_in) min_known_qsc = t[i].time_in; */
+/* 			if (min_known_qsc < tsc) break; */
+/* 		} */
+/* 	} */
+/* 	*qsc = min_known_qsc; */
+
+/* 	ps_mem_fence(); */
+/* } */
 static void
 ps_quiesce(struct parsec *parsec, coreid_t curr, ps_tsc_t tsc, ps_tsc_t *qsc)
 {
@@ -191,7 +221,7 @@ ps_quiesce(struct parsec *parsec, coreid_t curr, ps_tsc_t tsc, ps_tsc_t *qsc)
 	struct ps_quiescence_timing t;
 
 	min_known_qsc = ps_tsc();
-	for (i = 1 ; i < PS_NUMCORES ; i++) {
+	for (i = 1 ; i < PS_NUMCORES; i++) {
 		/* Make sure we don't all hammer core 0... */
 		qsc_cpu = (curr + i) % PS_NUMCORES;
 		assert(qsc_cpu != curr);
@@ -261,6 +291,7 @@ __ps_smr_reclaim(coreid_t curr, struct ps_qsc_list *ql, struct ps_smr_info *si,
 		a = __ps_qsc_dequeue(ql);
 		__ps_mhead_reset(a);
 		si->qmemcnt--;
+		/* if (a) printf("ps .h quisence free %llu qsc %llu\n", a->tsc_free, qsc); */
 		ffn(m, __ps_mhead_mem(a), 0, curr);
 	}
 #ifdef OPTIMAL
@@ -304,10 +335,11 @@ ps_init(struct parsec *ps)
 void
 ps_init_period(struct parsec *ps, ps_tsc_t p)
 {
-	int curr_cpu;
+	/* int curr_cpu; */
 
-	curr_cpu = ps_coreid();
-	ps->timing_info[curr_cpu].period = p;
+	/* curr_cpu = ps_coreid(); */
+	/* ps->timing_info[curr_cpu].period = p; */
+	_ps_period = p;
 }
 
 struct parsec *

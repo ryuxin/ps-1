@@ -9,22 +9,37 @@ PS_SLAB_CREATE(remote, 2*PS_CACHE_LINE, PS_PAGE_SIZE)
 #define CPU_FREQ 2000000
 #define TIMER_FREQ (CPU_FREQ*10)
 #define ITER       (10000000)
-/* #define RB_SZ   (1024 * 32) */
-#define RB_SZ   1024
-struct node {
-        volatile void * p;
-	char  padding[PS_CACHE_PAD-sizeof(void *)%PS_CACHE_PAD];
-}PS_PACKED PS_ALIGNED;
-void *ptrs[ITER/10];
+#define FREE_BATCH 64
+#define RB_SZ   ((PS_NUMCORES-1)*FREE_BATCH)
+#define ALLOC_BATCH 10000
+void *ptrs[ALLOC_BATCH];
 unsigned long cost[ITER] PS_ALIGNED;
 unsigned long alloc[ITER] PS_ALIGNED;
 void * volatile ring_buffer[RB_SZ] PS_ALIGNED;
 unsigned long long free_tsc, alloc_tsc;
 __thread int thd_local_id;
+int printer_id;
 
 static int cmpfunc(const void * a, const void * b)
 {
-	return ( *(int*)b - *(int*)a);
+	unsigned long aa, bb;
+	aa = *(unsigned long*)a;
+	bb = *(unsigned long*)b;
+	if (bb>aa) return 1;
+	if (bb<aa) return -1;
+	return 0;
+}
+
+static void out_latency(unsigned long *re, int num, char *label)
+{
+	int i;
+	unsigned long long sum = 0;
+
+	for(i=0; i<num; i++) sum += (unsigned long long)re[i];
+	qsort(re, num, sizeof(unsigned long), cmpfunc);
+	printf("thd %d tot %d avg %llu 99.9 %lu 99 %lu min %lu max %lu\n", thd_local_id, 
+	       num, sum/num, re[num/1000], re[num/100], re[num-1], re[0]);
+	printf("%s %lu\n", label, re[num/100]);
 }
 
 void
@@ -32,17 +47,18 @@ consumer(void)
 {
 	char *s, *h;
 	int id = thd_local_id, tf = 0;
-	unsigned long i = 0, jump = PS_NUMCORES-1, k = 0;
-	unsigned long long start, end, tot = 0, mmax, mmin;
+	unsigned long b, e, i, k = 0;
+	unsigned long long start, end;
 
-	i = id-1;
-	mmin = 1000000;
+	b = (id-1)*FREE_BATCH;
+	e = id*FREE_BATCH;
 	meas_barrier(PS_NUMCORES);
 
-	while(1) {
+c_begin:
+	for(i = b; i<e; i++) {
 		while (!ring_buffer[i]) ;
 		s = (char *)ring_buffer[i];
-		if (s == (void *)-1) break;
+		if (s == (void *)-1) goto c_end;
 		ring_buffer[i] = NULL;
 		assert(i == ((int *)s)[0]);
 		h = s-sizeof(struct ps_mheader);
@@ -52,65 +68,41 @@ consumer(void)
 		start = ps_tsc();
 		ps_slab_free_remote(s);
 		end = ps_tsc();
-		mmin = end-start;
-		if (id == 1 && k < ITER && mmin > 200) {
-			cost[k] = mmin;
-			/* cost[k] = end-start; */
-			tot += cost[k];
-			/* if (cost[k] > mmax) mmax = cost[k]; */
-			/* if (cost[k] < mmin) mmin = cost[k]; */
-			k++;
-		}
+		if (id == printer_id && k < ITER /* && mmin > 200 */) cost[k++] = end-start;
 		tf++;
-		i += jump;
-		if (i >= RB_SZ) i = id-1;
 	}
-	printf("thd %d free tot %d\n", id, tf);
-	if (id == 1) {
-		int t = tot/TIMER_FREQ;
-		qsort(cost, k, sizeof(unsigned long), cmpfunc);
-		free_tsc = tot / k;
-		printf("remote free timer %d avg %llu max %lu %lu min %lu tot %u\n", t, free_tsc, cost[0], cost[t], cost[k-1], k);
-		printf("remote free 99p %lu 99.9p %lu 99.99p %lu\n", cost[k/100], cost[k/1000], cost[k/10000]);
-	}
+	goto c_begin;
+c_end:
+	/* printf("thd %d free tot %d k %d %d\n", id, tf, k, tf/k); */
+	if (id == printer_id) out_latency(cost, k, "####");
 }
 
 void
 producer(void)
 {
 	void *s;
-	unsigned long i = 0, k = 0;
-	unsigned long long start, end, tot = 0, mmax, mmin;
+	unsigned long i, k = 0, b = 0;
+	unsigned long long start, end;
 
-	mmax = 0;
-	mmin = 1000000;
 	meas_barrier(PS_NUMCORES);
 
-	while(1) {
-		if (!ring_buffer[i]) {
-			/* start = ps_tsc(); */
-			s = ps_slab_alloc_remote();
-			/* end = ps_tsc(); */
-			assert(s);
-			((int *)s)[0] = i;
-			ring_buffer[i] = s;
-			/* if (k < ITER) { */
-			/*   alloc[k] = end-start; */
-			/*   tot += alloc[k]; */
-			/*   if (alloc[k] > mmax) mmax = alloc[k]; */
-			/*   if (alloc[k] < mmin) mmin = alloc[k]; */
-			/* } */
-			k++;
-			if (k == (PS_NUMCORES-1)*ITER) break;
-		}
-		i = (i+1)%RB_SZ;
+p_begin:
+	for(i=b; i<RB_SZ; i+=(PS_NUMCORES-1)) {
+		if (ring_buffer[i]) continue;
+		start = ps_tsc();
+		s = ps_slab_alloc_remote();
+		end = ps_tsc();
+		assert(s);
+		((int *)s)[0] = i;
+		ps_mem_fence();
+		ring_buffer[i] = s;
+		if (k < ITER) alloc[k] = end-start;
+		if ((++k) == (PS_NUMCORES-1)*ITER) goto p_out;
 	}
-
-	/* qsort(alloc, k, sizeof(unsigned long), cmpfunc); */
-	/* alloc_tsc = tot / ITER; */
-	/* int t = tot/TIMER_FREQ; */
-	/* printf("remote alloc timer %d avg %llu max %llu %lu %lu min %llu\n", t, alloc_tsc, mmax, alloc[t], alloc[k/100], mmin); */
-	printf("thd %d alloc tot %d\n", thd_local_id, k+RB_SZ);
+	b = (b+1) % FREE_BATCH;
+	goto p_begin;
+p_out:
+	out_latency(alloc, ITER, "@@@@");
 }
 
 void *
@@ -133,7 +125,6 @@ test_remote_frees(void)
 	
 	printf("Starting test for remote frees\n");
 	for(i=0; i<RB_SZ; i++) {
-		ret = pthread_create(&child[i], 0, child_fn, (void *)i);
 		s = (int *)ps_slab_alloc_remote();
 		s[0] = i;
 		ring_buffer[i] = (void *)s;
@@ -159,71 +150,32 @@ test_remote_frees(void)
 void
 test_local(void)
 {
-	int i, j, k = 0;
-	unsigned long long s, mmin, start, subt = 0;
-	unsigned long long e, mmax = 0, tot = 0, end;
+	int i, j, k = 0, l = 0;
+	unsigned long long e, s;
 
-	mmin = 10000000;
-	for (i = 0 ; i < ITER/10 ; i++) ptrs[i] = ps_slab_alloc_local();
-	for (i = 0 ; i < ITER/10 ; i++) {
+	for (i = 0 ; i < ALLOC_BATCH ; i++) ptrs[i] = ps_slab_alloc_local();
+	for (i = 0 ; i < ALLOC_BATCH ; i++) {
 		s = ps_tsc();
 		ps_slab_free_local(ptrs[i]);
 		e = ps_tsc();
 	}
 
-	for(j=0; j<10; j++) {
-		for (i = 0 ; i < ITER/10 ; i++) ptrs[i] = ps_slab_alloc_local();
-		start = ps_tsc();
-		for (i = 0 ; i < ITER/10 ; i++) {
+	for(j=0; j<ITER/ALLOC_BATCH; j++) {
+		for (i = 0 ; i < ALLOC_BATCH ; i++) {
+			s = ps_tsc();
+			ptrs[i] = ps_slab_alloc_local();
+			e = ps_tsc();
+			alloc[l++] = e-s;
+		}
+		for (i = 0 ; i < ALLOC_BATCH ; i++) {
 			s = ps_tsc();
 			ps_slab_free_local(ptrs[i]);
 			e = ps_tsc();
-			cost[k] = e-s;
-			tot += cost[k]; 
-			if (cost[k] > mmax) mmax = cost[k];
-			if (cost[k] < mmin) mmin = cost[k];
-			k++;
-
+			cost[k++] = e-s;
 		}
-		end = ps_tsc();
-		subt += (end-start);
 	}
-	qsort(cost, k, sizeof(unsigned long), cmpfunc);
-	int t = subt/TIMER_FREQ;
-	printf("local free timer %d avg %llu max %llu %lu 99p %lu min %llu\n", t, tot/ITER, mmax, cost[t], cost[k/100], mmin);
-}
-
-void timer_gap(void)
-{
-	int i, j;
-	unsigned long long s, e, start, end;
-
-	for(i=0; i<ITER/10; i++) {
-		s = ps_tsc();
-		for(j=0; j<10; j++) {
-			j++;
-			j--;
-		}
-		e = ps_tsc();
-		cost[i] = e-s;
-	}
-
-	start = ps_tsc();
-	for(i=0; i<ITER; i++) {
-		s = ps_tsc();
-		for(j=0; j<10; j++) {
-			j++;
-			j--;
-		}
-		e = ps_tsc();
-		cost[i] = e-s;
-	}
-	end = ps_tsc();
-
-	qsort(cost, ITER, sizeof(unsigned long), cmpfunc);
-	printf("total timer %lu\n", (end-start)/TIMER_FREQ);
-	/* for(i=0; i<50; i++) printf("%d ", cost[i]); */
-	/* printf("\n"); */
+	out_latency(alloc, l, "aloc");
+	out_latency(cost, k, "free");
 }
 
 void set_smp_affinity()
@@ -235,8 +187,13 @@ void set_smp_affinity()
 }
 
 int
-main(void)
+main(int argc, char *argv[])
 {
+	if (argc < 2) {
+		printf("usage: %s print_core_id\n", argv[0]);
+		exit(-1);
+	}
+	printer_id = atoi(argv[1]);
 	thd_local_id = 0;
 	set_smp_affinity();
 	thd_set_affinity(pthread_self(), 0);
