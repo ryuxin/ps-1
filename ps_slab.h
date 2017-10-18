@@ -79,7 +79,7 @@ static inline void
 __ps_slab_freelist_check(struct ps_slab_freelist *fl)
 {
 	struct ps_slab *s = fl->list;
-	
+
 	if (!s) return;
 	do {
 		assert(s->memory && s->freelist);
@@ -219,7 +219,7 @@ __ps_slab_mem_alloc(struct ps_mem *mem, PS_SLAB_PARAMS)
 		s = afn(mem, allocsz, coreid);
 		/* slab_malloc++; */
 		if (unlikely(!s)) return NULL;
-		
+	
 		__ps_slab_init(s, si, PS_SLAB_ARGS);
 		si->nslabs++;
 		assert(s->memory && s->freelist);

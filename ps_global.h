@@ -203,7 +203,7 @@ struct ps_mem_percore {
 
 	char padding[PS_CACHE_PAD-((sizeof(struct ps_slab_info) + sizeof(struct ps_smr_info))%PS_CACHE_PAD)];
 
-	/* 
+	/*
 	 * Isolate the contended cache-lines from the common-case
 	 * ones, maintain a set of them per numa node to ensure that
 	 * performing remote frees does not contend across more than 2
@@ -218,7 +218,7 @@ struct ps_locality_info {
 
 struct ps_mem {
 	struct ps_ns_info       ns_info;
-	struct ps_mem_percore   percore[PS_NUMCORES];	
+	struct ps_mem_percore   percore[PS_NUMCORES];
 } PS_ALIGNED;
 
 #define __PS_MEM_CREATE_DATA(name) struct ps_mem __ps_mem_##name;

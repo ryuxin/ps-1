@@ -88,7 +88,7 @@ re_check:
 		out    = cpuinfo->timing_others[qsc_cpu].time_out;
 		update = cpuinfo->timing_others[qsc_cpu].time_updated;
 
-		/* 
+		/*
 		 * If the time is before the last in-tsc, or the other
 		 * cores has entered and exited the parallel section,
 		 * and our updated version of its timing happened
@@ -97,7 +97,7 @@ re_check:
 		if ((time_check < in) || ((time_check < update) && (in < out))) done_i = 1;
 
 		if (done_i) {
-			/* 
+			/*
 			 * We want to update our own version of the
 			 * time furthest into the past that quiescence
 			 * has been observed.
@@ -118,7 +118,7 @@ re_check:
 		if      (first_try) first_try = 0;
 		else if (!blocking) return -1;
 
-		/* 
+		/*
 		 * If we couldn't satisfy the quiescence locally, then
 		 * we need to update our cached state for the remote
 		 * core.
@@ -154,7 +154,7 @@ re_check:
 	return 0;
 }
 
-/* 
+/*
  * Blocking and non-blocking versions of quiescence.  By default, we
  * should only use the non-blocking version (i.e. the system should be
  * wait-free), but we might run out of memory if this is the case.
@@ -374,7 +374,7 @@ __ps_memptr_init(struct ps_mem *m, struct parsec *ps)
 		pc[i].smr_info.qmemcnt    = 0;
 		pc[i].smr_info.ps         = ps;
 		ps->refcnt++;
-	}								
+	}
 }
 
 int

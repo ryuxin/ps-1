@@ -13,13 +13,13 @@
 
 #include <ps_slab.h>
 
-/* 
+/*
  * Default allocation and deallocation functions: assume header is
  * internal to the slab's memory
  */
 struct ps_slab *
 ps_slab_defalloc(struct ps_mem *m, size_t sz, coreid_t coreid)
-{ 
+{
 	struct ps_slab *s = ps_plat_alloc(sz, coreid);
 	(void)coreid; (void)m;
 
@@ -87,7 +87,7 @@ ps_slabptr_stats(struct ps_mem *m, struct ps_slab_stats *stats)
 	struct ps_mem_percore *pc;
 
 	memset(stats, 0, sizeof(struct ps_slab_stats));
-	
+
 	for (i = 0 ; i < PS_NUMCORES ; i++) {
 		pc = &m->percore[i];
 		s = pc->slab_info.fl.list;

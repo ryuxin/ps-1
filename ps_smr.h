@@ -92,7 +92,7 @@ __ps_smr_free(void *buf, struct ps_mem *mem, ps_free_fn_t ffn)
 	si  = &mem->percore[curr_core].smr_info;
 	ql  = &si->qsc_list;
 
-	/* 
+	/*
 	 * Note: we currently enqueue remotely freed memory into the
 	 * qlist of the core the memory is freed on, later to be moved
 	 * to its native core by the remote free logic within the slab
